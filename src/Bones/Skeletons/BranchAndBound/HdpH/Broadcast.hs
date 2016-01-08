@@ -2,7 +2,10 @@
 module Bones.Skeletons.BranchAndBound.HdpH.Broadcast
   (
     declareStatic
+  , addGlobalSearchSpaceToRegistry
+  , readFromRegistry
   , search
+  , BAndBFunctions(..)
   ) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
@@ -41,11 +44,6 @@ registry :: IORef (Map.Map Int (IORef a))
 {-# NOINLINE registry #-}
 registry = unsafePerformIO $ newIORef Map.empty
 
-addGlobalSearchSpaceToRegistry :: IORef a -> IO ()
-addGlobalSearchSpaceToRegistry ref = do
-    reg      <- readIORef registry
-    let reg' = Map.insert searchSpaceKey ref reg
-    atomicWriteIORef registry reg'
 
 getRefFromRegistry :: Int -> IO (IORef a)
 getRefFromRegistry k = do
@@ -61,10 +59,14 @@ readFromRegistry k = do
 
 initRegistryBound :: Closure a -> Thunk (Par ())
 initRegistryBound bnd = Thunk $ io $ do
-    bndRef <- newIORef $ bnd
+    bndRef <- newIORef  bnd
     reg    <- readIORef registry
-    let reg' = Map.insert boundKey bndRef reg
-    atomicWriteIORef registry reg'
+    atomicWriteIORef registry $ Map.insert boundKey bndRef reg
+
+addGlobalSearchSpaceToRegistry :: IORef a -> IO ()
+addGlobalSearchSpaceToRegistry ref = do
+    reg      <- readIORef registry
+    atomicWriteIORef registry $ Map.insert searchSpaceKey ref reg
 
 --------------------------------------------------------------------------------
 --- Data Types
