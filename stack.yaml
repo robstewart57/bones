@@ -1,0 +1,17 @@
+flags: {}
+packages:
+- '.'
+- location:
+    git: git@github.com:BlairArchibald/HdpH.git
+    commit: 779bb5e07a2026bce8ffd1093eea8e3b50d199af
+  subdirs:
+  - hdph
+  - hdph-closure
+- location:
+    git: git@github.com:haskell-distributed/network-transport-tcp.git
+    commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
+- location:
+    git: git@github.com:BlairArchibald/bones.git
+    commit: 90eb5bf100b4d1df78b729c5792f14e0ca051252
+extra-deps: []
+resolver: lts-3.9
