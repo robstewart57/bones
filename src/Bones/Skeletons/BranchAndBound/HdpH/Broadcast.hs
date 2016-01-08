@@ -1,5 +1,5 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Bones.Skeletons.BranchAndBound.HdpH.Broadcast
   (
     declareStatic
@@ -17,12 +17,15 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         one, pushTo, spawn, spawnAt, static,
                                         staticToClosure, toClosure, unClosure)
 
+import           Control.DeepSeq       (NFData)
 import           Control.Monad         (forM_, when)
 
 import           Data.IORef            (IORef, atomicModifyIORef',
                                         atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict       as Map (Map, empty, insert, lookup)
 import           Data.Monoid           (mconcat)
+
+import           Data.Serialize        (Serialize)
 
 import           GHC.Generics
 import           System.IO.Unsafe      (unsafePerformIO)
@@ -46,7 +49,6 @@ boundKey = 2
 registry :: IORef (Map.Map Int (IORef a))
 {-# NOINLINE registry #-}
 registry = unsafePerformIO $ newIORef Map.empty
-
 
 getRefFromRegistry :: Int -> IO (IORef a)
 getRefFromRegistry k = do
@@ -78,13 +80,16 @@ addGlobalSearchSpaceToRegistry ref = do
 -- Functions required to specify a B&B computation
 data BAndBFunctions a b c s =
   BAndBFunctions
-    { generateChoices :: Closure a -> Closure s -> Par [Closure c]
-    , shouldPrune     :: Closure c -> Closure a -> Closure b -> Bool
-    , updateBound     :: Closure b -> Closure b -> Bool
-    , step            :: Closure c -> Closure a -> Closure s
-                          -> Par (Closure a, Closure b, Closure s)
-    , removeChoice    :: Closure c -> Closure s-> Closure s
+    { generateChoices :: Closure (Closure a -> Closure s -> Par [Closure c])
+    , shouldPrune     :: Closure (Closure c -> Closure a -> Closure b -> Bool)
+    , updateBound     :: Closure (Closure b -> Closure b -> Bool)
+    , step            :: Closure (Closure c -> Closure a -> Closure s
+                          -> Par (Closure a, Closure b, Closure s))
+    , removeChoice    :: Closure (Closure c -> Closure s-> Closure s)
     } deriving (Generic)
+
+instance NFData (BAndBFunctions a b c s)
+instance Serialize (BAndBFunctions a b c s)
 
 instance ToClosure () where
   locToClosure = $(here)
@@ -110,11 +115,11 @@ search startingSol space bnd fs' = do
   let fs = unClosure fs'
 
   -- Gen at top level
-  ts   <- generateChoices fs searchSpace space
+  ts   <- (unClosure $ generateChoices fs) searchSpace space
 
   -- Generating the starting tasks remembering to remove choices from their left
   -- from the starting "remaining" set
-  let tasks = let sr = tail $ scanl (flip (removeChoice fs)) space ts
+  let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
               in  zipWith (createChildren master) sr ts
 
   children <- mapM (spawn one) (reverse tasks)
@@ -147,10 +152,10 @@ branchAndBoundChild (n, c, sol, rem, fs') =
     let fs = unClosure fs'
 
     bnd <- io $ readFromRegistry boundKey
-    if shouldPrune fs c sol bnd then
+    if (unClosure $ shouldPrune fs) c sol bnd then
         return $ toClosure ()
     else do
-        (startingSol, _, rem') <- step fs c sol rem
+        (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
         toClosure <$> branchAndBoundExpand n startingSol rem' fs'
 
 branchAndBoundExpand ::
@@ -162,25 +167,25 @@ branchAndBoundExpand ::
 branchAndBoundExpand parent sol rem fs' = do
   let fs  = unClosure fs'
 
-  choices <- generateChoices fs sol rem
+  choices <- (unClosure $ generateChoices fs) sol rem
 
   go sol rem choices fs
     where go sol remaining [] fs      = return ()
           go sol remaining (c:cs) fs  = do
             bnd <- io $ readFromRegistry boundKey
 
-            if shouldPrune fs c sol bnd then
+            if (unClosure $ shouldPrune fs) c sol bnd then
               return ()
             else do
-              (newSol, newBnd, remaining') <- step fs c sol remaining
+              (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining
 
-              when (updateBound fs newBnd bnd) $ do
+              when ((unClosure $ updateBound fs) newBnd bnd) $ do
                  bAndb_parUpdateLocalBounds newBnd fs'
                  bAndb_notifyParentOfNewBest parent (newSol, newBnd) fs'
 
               branchAndBoundExpand parent newSol remaining' fs'
 
-              let remaining'' = removeChoice fs c remaining
+              let remaining'' = (unClosure $ removeChoice fs) c remaining
               go sol remaining'' cs fs
 
 bAndb_parUpdateLocalBounds :: Closure b
@@ -189,7 +194,7 @@ bAndb_parUpdateLocalBounds :: Closure b
 bAndb_parUpdateLocalBounds bnd fs = do
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
-    if updateBound (unClosure fs) bnd b
+    if (unClosure $ updateBound (unClosure fs)) bnd b
       then (bnd, ())
       else (b, ())
 
@@ -217,7 +222,7 @@ bAndb_updateParentBest :: ( (Closure a, Closure b)
 bAndb_updateParentBest ((sol, bnd), fs) = Thunk $ do
   ref <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(oldSol, b) ->
-                if updateBound (unClosure fs) bnd b
+                if (unClosure $ updateBound (unClosure fs)) bnd b
                     then ((sol, bnd), True)
                     else (prev      , False)
 
