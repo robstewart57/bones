@@ -3,6 +3,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.Broadcast
   (
     declareStatic
   , addGlobalSearchSpaceToRegistry
+  , searchSpaceKey
   , readFromRegistry
   , search
   , BAndBFunctions(..)
