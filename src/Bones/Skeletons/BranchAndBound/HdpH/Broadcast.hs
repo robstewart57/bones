@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveGeneric   #-}
 module Bones.Skeletons.BranchAndBound.HdpH.Broadcast
   (
     declareStatic
@@ -23,6 +24,7 @@ import           Data.IORef            (IORef, atomicModifyIORef',
 import qualified Data.Map.Strict       as Map (Map, empty, insert, lookup)
 import           Data.Monoid           (mconcat)
 
+import           GHC.Generics
 import           System.IO.Unsafe      (unsafePerformIO)
 
 --------------------------------------------------------------------------------
@@ -82,7 +84,7 @@ data BAndBFunctions a b c s =
     , step            :: Closure c -> Closure a -> Closure s
                           -> Par (Closure a, Closure b, Closure s)
     , removeChoice    :: Closure c -> Closure s-> Closure s
-    }
+    } deriving (Generic)
 
 instance ToClosure () where
   locToClosure = $(here)
