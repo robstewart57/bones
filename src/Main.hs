@@ -40,7 +40,8 @@ import           DIMACParser              (parseDIMACS2)
 import           Graph
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
-import           Solvers.BonesSolver (broadcast, declareStatic)
+import           Solvers.BonesSolver (broadcast)
+import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
@@ -137,11 +138,7 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     HdpH.declareStatic
-    -- Strategies.declareStatic,
-    -- BandBSkeletons.declareStatic,
-    -- CliqueSolver.ParallelBroadcastSolver.declareStatic,
-    -- CliqueSolver.ParallelFuelSolver.declareStatic,
-    -- CliqueSolver.MaxCliqueSkeleton.declareStatic
+  , BonesSolver.declareStatic
   ]
 --------------------------------------------------------------------------------
 -- Main

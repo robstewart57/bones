@@ -155,6 +155,13 @@ declareStatic = mconcat
   ,  declare (staticToClosure :: StaticToClosure (Vertex, Int))
   ,  declare (staticToClosure :: StaticToClosure (Broadcast.BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet))
 
+  -- B&B Functions
+  , declare $(static 'generateChoices)
+  , declare $(static 'shouldPrune)
+  , declare $(static 'shouldUpdateBound)
+  , declare $(static 'step)
+  , declare $(static 'removeFromSpace)
+
   -- Explicit toClosure
   , declare $(static 'toClosureInt_abs)
   , declare $(static 'toClosureListVertex_abs)
