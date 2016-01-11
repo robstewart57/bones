@@ -19,18 +19,22 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
 
 import           Control.Monad         (forM_, when)
 
-import           Data.IORef            (IORef, atomicModifyIORef',
-                                        atomicWriteIORef, newIORef, readIORef)
-import qualified Data.Map.Strict       as Map (Map, empty, insert, lookup)
+import           Data.IORef            (IORef, atomicModifyIORef')
+
 import           Data.Monoid           (mconcat)
 
-
-import           System.IO.Unsafe      (unsafePerformIO)
-
 import           Bones.Skeletons.BranchAndBound.HdpH.Types
+import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
---- Registry Functionality for global variables
+--- Data Types
+--------------------------------------------------------------------------------
+
+instance ToClosure () where
+  locToClosure = $(here)
+
+--------------------------------------------------------------------------------
+--- Registry Functionality
 --------------------------------------------------------------------------------
 
 searchSpaceKey :: Int
@@ -45,39 +49,11 @@ boundKey :: Int
 {-# INLINE boundKey #-}
 boundKey = 2
 
-registry :: IORef (Map.Map Int (IORef a))
-{-# NOINLINE registry #-}
-registry = unsafePerformIO $ newIORef Map.empty
-
-getRefFromRegistry :: Int -> IO (IORef a)
-getRefFromRegistry k = do
-  r <- readIORef registry
-  case Map.lookup k r of
-    Nothing -> error $ " Could not find key: " ++ show k ++ " in global registry."
-    Just x  -> return x
-
-readFromRegistry :: Int -> IO a
-readFromRegistry k = do
-  ref <- getRefFromRegistry k
-  readIORef ref
-
 initRegistryBound :: Closure a -> Thunk (Par ())
-initRegistryBound bnd = Thunk $ io $ do
-    bndRef <- newIORef  bnd
-    reg    <- readIORef registry
-    atomicWriteIORef registry $ Map.insert boundKey bndRef reg
+initRegistryBound bnd = Thunk $ io (addToRegistry boundKey bnd)
 
 addGlobalSearchSpaceToRegistry :: IORef a -> IO ()
-addGlobalSearchSpaceToRegistry ref = do
-    reg      <- readIORef registry
-    atomicWriteIORef registry $ Map.insert searchSpaceKey ref reg
-
---------------------------------------------------------------------------------
---- Data Types
---------------------------------------------------------------------------------
-
-instance ToClosure () where
-  locToClosure = $(here)
+addGlobalSearchSpaceToRegistry = addRefToRegistry searchSpaceKey
 
 --------------------------------------------------------------------------------
 --- Skeleton Functionality
@@ -92,7 +68,6 @@ search startingSol space bnd fs' = do
   master <- myNode
   ns     <- allNodes
 
-  initRegistry
   initLocalRegistries ns
 
   searchSpace <- io $ readFromRegistry searchSpaceKey
@@ -112,13 +87,8 @@ search startingSol space bnd fs' = do
 
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
-      initRegistry = io $ do
-        solRef <- newIORef (startingSol, bnd)
-        reg    <- readIORef registry
-        let reg' = Map.insert solutionKey solRef reg
-        atomicWriteIORef registry reg'
-
       initLocalRegistries nodes = do
+        io $ addToRegistry solutionKey (startingSol, bnd)
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
 
       createChildren m rem c =
