@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE TemplateHaskell #-}
+
 module Bones.Skeletons.BranchAndBound.HdpH.Broadcast
   (
     declareStatic
@@ -17,7 +17,6 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         one, pushTo, spawn, spawnAt, static,
                                         staticToClosure, toClosure, unClosure)
 
-import           Control.DeepSeq       (NFData)
 import           Control.Monad         (forM_, when)
 
 import           Data.IORef            (IORef, atomicModifyIORef',
@@ -25,10 +24,10 @@ import           Data.IORef            (IORef, atomicModifyIORef',
 import qualified Data.Map.Strict       as Map (Map, empty, insert, lookup)
 import           Data.Monoid           (mconcat)
 
-import           Data.Serialize        (Serialize)
 
-import           GHC.Generics
 import           System.IO.Unsafe      (unsafePerformIO)
+
+import           Bones.Skeletons.BranchAndBound.HdpH.Types
 
 --------------------------------------------------------------------------------
 --- Registry Functionality for global variables
@@ -76,20 +75,6 @@ addGlobalSearchSpaceToRegistry ref = do
 --------------------------------------------------------------------------------
 --- Data Types
 --------------------------------------------------------------------------------
-
--- Functions required to specify a B&B computation
-data BAndBFunctions a b c s =
-  BAndBFunctions
-    { generateChoices :: Closure (Closure a -> Closure s -> Par [Closure c])
-    , shouldPrune     :: Closure (Closure c -> Closure a -> Closure b -> Bool)
-    , updateBound     :: Closure (Closure b -> Closure b -> Bool)
-    , step            :: Closure (Closure c -> Closure a -> Closure s
-                          -> Par (Closure a, Closure b, Closure s))
-    , removeChoice    :: Closure (Closure c -> Closure s-> Closure s)
-    } deriving (Generic)
-
-instance NFData (BAndBFunctions a b c s)
-instance Serialize (BAndBFunctions a b c s)
 
 instance ToClosure () where
   locToClosure = $(here)
