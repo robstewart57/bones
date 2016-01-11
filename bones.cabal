@@ -16,6 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src/
   exposed-modules:     Bones.Skeletons.BranchAndBound.HdpH.Broadcast
+                       Bones.Skeletons.BranchAndBound.HdpH.Safe
                        Bones.Skeletons.BranchAndBound.HdpH.Types
   other-modules:       Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
   build-depends:         base       >= 4.7 && < 5
