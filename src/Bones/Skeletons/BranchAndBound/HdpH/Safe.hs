@@ -4,8 +4,6 @@ module Bones.Skeletons.BranchAndBound.HdpH.Safe
   (
     declareStatic
   , search
-  , addGlobalSearchSpaceToRegistry
-  , getGlobalSearchSpace
   ) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,

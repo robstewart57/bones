@@ -3,10 +3,7 @@
 module Bones.Skeletons.BranchAndBound.HdpH.Broadcast
   (
     declareStatic
-  , addGlobalSearchSpaceToRegistry
-  , getGlobalSearchSpace
   , search
-  , BAndBFunctions(..)
   ) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
