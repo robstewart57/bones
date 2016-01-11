@@ -3,11 +3,9 @@
 module Bones.Skeletons.BranchAndBound.HdpH.Safe
   (
     declareStatic
-  , addGlobalSearchSpaceToRegistry
-  , searchSpaceKey
-  , readFromRegistry
   , search
-  , BAndBFunctions(..)
+  , addGlobalSearchSpaceToRegistry
+  , getGlobalSearchSpace
   ) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
@@ -33,28 +31,6 @@ import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 --------------------------------------------------------------------------------
 
 instance ToClosure () where locToClosure = $(here)
-
---------------------------------------------------------------------------------
---- Registry Functionality
---------------------------------------------------------------------------------
-
-searchSpaceKey :: Int
-{-# INLINE searchSpaceKey #-}
-searchSpaceKey = 0
-
-solutionKey :: Int
-{-# INLINE solutionKey #-}
-solutionKey = 1
-
-boundKey :: Int
-{-# INLINE boundKey #-}
-boundKey = 2
-
-initRegistryBound :: Closure a -> Thunk (Par ())
-initRegistryBound bnd = Thunk $ io (addToRegistry boundKey bnd)
-
-addGlobalSearchSpaceToRegistry :: IORef a -> IO ()
-addGlobalSearchSpaceToRegistry = addRefToRegistry searchSpaceKey
 
 --------------------------------------------------------------------------------
 --- Skeleton Functionality

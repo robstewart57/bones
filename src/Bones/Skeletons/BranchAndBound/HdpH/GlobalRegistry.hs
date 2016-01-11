@@ -7,7 +7,18 @@ module Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
   , readFromRegistry
   , addToRegistry
+
+  , addGlobalSearchSpaceToRegistry
+  , getGlobalSearchSpace
+
+  , initRegistryBound
+
+  , searchSpaceKey
+  , solutionKey
+  , boundKey
   ) where
+
+import           Control.Parallel.HdpH (Closure, Thunk(..), Par, io)
 
 import           Data.IORef      (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as Map (Map, empty, insert, lookup)
@@ -39,3 +50,29 @@ addRefToRegistry k v = do
 
 addToRegistry :: Int -> a -> IO ()
 addToRegistry k v = newIORef v >>= addRefToRegistry k
+
+
+--------------------------------------------------------------------------------
+-- Skeleton Interface
+--------------------------------------------------------------------------------
+
+searchSpaceKey :: Int
+{-# INLINE searchSpaceKey #-}
+searchSpaceKey = 0
+
+solutionKey :: Int
+{-# INLINE solutionKey #-}
+solutionKey = 1
+
+boundKey :: Int
+{-# INLINE boundKey #-}
+boundKey = 2
+
+initRegistryBound :: Closure a -> Thunk (Par ())
+initRegistryBound bnd = Thunk $ io (addToRegistry boundKey bnd)
+
+addGlobalSearchSpaceToRegistry :: IORef a -> IO ()
+addGlobalSearchSpaceToRegistry = addRefToRegistry searchSpaceKey
+
+getGlobalSearchSpace :: IO a
+getGlobalSearchSpace = readFromRegistry searchSpaceKey
