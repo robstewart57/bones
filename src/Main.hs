@@ -40,10 +40,12 @@ import           DIMACParser              (parseDIMACS2)
 import           Graph
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
-import           Solvers.BonesSolver (broadcast)
+import           Solvers.BonesSolver (broadcast, safeSkeleton)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
+import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
 -- Misc Functions
@@ -69,6 +71,7 @@ diffTimeMs (TimeSpec s1 n1) (TimeSpec s2 n2) = fromIntegral (t2 - t1)
 --------------------------------------------------------------------------------
 data Algorithm = Sequential
                | ParallelBroadcast
+               | SafeSkeleton
               deriving (Read, Show)
 
 data Options = Options
@@ -195,14 +198,21 @@ main = do
         evaluate (rnf bigCstar')
         return $ Just bigCstar'
     ParallelBroadcast -> do
-      return (Nothing, 0)
-      register Main.declareStatic
+      register (Main.declareStatic <> Broadcast.declareStatic)
 
       -- -- Make sure the graph is available globally
       graph <- newIORef bigG
-      Broadcast.addGlobalSearchSpaceToRegistry graph
+      addGlobalSearchSpaceToRegistry graph
 
       timeIOMs $ evaluate =<< runParIO conf (broadcast bigG)
+    SafeSkeleton -> do
+      register (Main.declareStatic <> Safe.declareStatic)
+
+      -- -- Make sure the graph is available globally
+      graph <- newIORef bigG
+      addGlobalSearchSpaceToRegistry graph
+
+      timeIOMs $ evaluate =<< runParIO conf (safeSkeleton bigG 0)
 
   case res of
     Nothing -> exitSuccess

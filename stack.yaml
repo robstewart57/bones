@@ -3,7 +3,7 @@ packages:
 - '.'
 - location:
     git: git@github.com:BlairArchibald/HdpH.git
-    commit: 779bb5e07a2026bce8ffd1093eea8e3b50d199af
+    commit: 1ff5954385a5190553e3e4070cab5cce714867dc
   subdirs:
   - hdph
   - hdph-closure
@@ -12,6 +12,7 @@ packages:
     commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
 - location:
     git: git@github.com:BlairArchibald/bones.git
-    commit: b71e606f11f445653419a8907e7f6b18933aeb2f
+    commit: 666d7c34e559bb95e3dc3a11f42cad0f6cf2ced8
+
 extra-deps: []
 resolver: lts-3.9

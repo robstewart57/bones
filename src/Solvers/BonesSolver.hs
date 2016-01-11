@@ -5,6 +5,7 @@
 
 module Solvers.BonesSolver (
     broadcast
+  , safeSkeleton
   , declareStatic) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
@@ -29,6 +30,9 @@ import           Clique                (Clique, emptyClique)
 import           System.IO.Unsafe      (unsafePerformIO)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe      as Safe
+import           Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions))
+import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
 -- Type instances
@@ -39,7 +43,7 @@ instance ToClosure [Vertex] where locToClosure = $(here)
 instance ToClosure (Vertex, Int) where locToClosure = $(here)
 instance ToClosure VertexSet where locToClosure = $(here)
 
-instance ToClosure (Broadcast.BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet) where
+instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet) where
   locToClosure = $(here)
 
 --------------------------------------------------------------------------------
@@ -49,7 +53,7 @@ generateChoices  :: Closure [Vertex]
                  -> Closure VertexSet
                  -> Par ([Closure (Vertex, Int)])
 generateChoices cur remaining = do
-  g <- io $ Broadcast.readFromRegistry Broadcast.searchSpaceKey
+  g <- io $ readFromRegistry searchSpaceKey
   let vs = unClosure remaining
   if VertexSet.null vs
     then return []
@@ -76,7 +80,7 @@ step :: Closure (Vertex, Int)
      -> Closure VertexSet
      -> Par (Closure [Vertex], Closure Int, Closure VertexSet)
 step c sol vs = do
-  searchSpace <- io $ Broadcast.readFromRegistry Broadcast.searchSpaceKey
+  searchSpace <- io $ readFromRegistry searchSpaceKey
 
   let (v,col) = unClosure c
       sol'    = unClosure sol
@@ -107,7 +111,23 @@ broadcast g = do
         (toClosureListVertex ([] :: [Vertex]))
         (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
         (toClosureInt (0 :: Int))
-        (toClosure (Broadcast.BAndBFunctions
+        (toClosure (BAndBFunctions
+          $(mkClosure [| generateChoices |])
+          $(mkClosure [| shouldPrune |])
+          $(mkClosure [| shouldUpdateBound |])
+          $(mkClosure [| step |])
+          $(mkClosure [| removeFromSpace |])))
+
+  return (vs, length vs)
+
+safeSkeleton :: Graph -> Int -> Par Clique
+safeSkeleton g depth = do
+  vs <- Safe.search
+        depth
+        (toClosureListVertex ([] :: [Vertex]))
+        (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
+        (toClosureInt (0 :: Int))
+        (toClosure (BAndBFunctions
           $(mkClosure [| generateChoices |])
           $(mkClosure [| shouldPrune |])
           $(mkClosure [| shouldUpdateBound |])
@@ -147,13 +167,11 @@ $(return [])
 declareStatic :: StaticDecl
 declareStatic = mconcat
   [
-     Broadcast.declareStatic
-
-  ,  declare (staticToClosure :: StaticToClosure Int)
-  ,  declare (staticToClosure :: StaticToClosure [Vertex])
-  ,  declare (staticToClosure :: StaticToClosure VertexSet)
-  ,  declare (staticToClosure :: StaticToClosure (Vertex, Int))
-  ,  declare (staticToClosure :: StaticToClosure (Broadcast.BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet))
+    declare (staticToClosure :: StaticToClosure Int)
+  , declare (staticToClosure :: StaticToClosure [Vertex])
+  , declare (staticToClosure :: StaticToClosure VertexSet)
+  , declare (staticToClosure :: StaticToClosure (Vertex, Int))
+  , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet))
 
   -- B&B Functions
   , declare $(static 'generateChoices)
