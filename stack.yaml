@@ -6,6 +6,15 @@ resolver: lts-3.9
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
+- location:
+    git: git@github.com:BlairArchibald/HdpH.git
+    commit: 779bb5e07a2026bce8ffd1093eea8e3b50d199af
+  subdirs:
+  - hdph
+  - hdph-closure
+- location:
+    git: git@github.com:haskell-distributed/network-transport-tcp.git
+    commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []
