@@ -21,10 +21,11 @@ import qualified Data.IntSet              as VertexSet (delete, difference,
                                                         fromAscList,
                                                         intersection, member,
                                                         minView, null, size)
-import           Data.IORef (newIORef)
+import           Data.IORef               (newIORef)
 import           Data.List                (delete, group, groupBy, sort, sortBy,
                                            stripPrefix)
 import           Data.Monoid              (mconcat)
+import           Data.Maybe               (fromMaybe)
 
 import           Options.Applicative
 
@@ -75,10 +76,11 @@ data Algorithm = Sequential
               deriving (Read, Show)
 
 data Options = Options
-  { algorithm :: Algorithm
-  , dataFile  :: FilePath
-  , noPerm    :: Bool
-  , verbose   :: Bool
+  { algorithm  :: Algorithm
+  , dataFile   :: FilePath
+  , noPerm     :: Bool
+  , verbose    :: Bool
+  , spawnDepth :: Maybe Int
   }
 
 optionParser :: Parser Options
@@ -102,8 +104,14 @@ optionParser = Options
                <> short 'v'
                <> help "Enable verbose output"
                )
+           <*> optional (option auto
+               (  long "spawnDepth"
+               <> short 'd'
+               <> help "Spawn depth can effect many skeletons"
+               ))
   where printAlgorithms = "[Sequential,\
-                          \ ParallelBroadcast]"
+                          \ ParallelBroadcast,\
+                          \ SafeSkeleton]"
 
 optsParser = info (helper <*> optionParser)
              (  fullDesc
@@ -154,7 +162,7 @@ main = do
   (conf, seed, args') <- parseHdpHOpts args
 
   (Options algorithm filename noPerm
-              verbose) <- handleParseResult $
+              verbose depth) <- handleParseResult $
     execParserPure defaultPrefs optsParser args'
 
   let permute = not noPerm
@@ -212,7 +220,8 @@ main = do
       graph <- newIORef bigG
       addGlobalSearchSpaceToRegistry graph
 
-      timeIOMs $ evaluate =<< runParIO conf (safeSkeleton bigG 0)
+      let depth' = fromMaybe 0 depth
+      timeIOMs $ evaluate =<< runParIO conf (safeSkeleton bigG depth')
 
   case res of
     Nothing -> exitSuccess
