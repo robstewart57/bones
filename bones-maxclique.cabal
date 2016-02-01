@@ -20,6 +20,7 @@ executable bones-maxclique
                      , Graph
                      , Clique
                      , Solvers.SequentialSolver
+                     , Solvers.SequentialSolverBBMC
                      , Solvers.BonesSolver
   ghc-options:         -threaded -rtsopts
   build-depends:       array >=0.5 && <0.6
@@ -32,6 +33,7 @@ executable bones-maxclique
                      , template-haskell >=2.9 && <2.11
                      , optparse-applicative >= 0.11 && < 0.12
                      , hdph  == 0.2.3
+                     , vector >= 0.10.12
   default-language:    Haskell2010
 
 test-suite bones-maxclique-test
