@@ -5,9 +5,7 @@
 
 module Solvers.SequentialSolverBBMC
   (
-  process,
-  search,
-  printSolution
+  sequentialMaxCliqueBBMC
   ) where
 
 {-
@@ -31,6 +29,8 @@ module Solvers.SequentialSolverBBMC
 -}
 
 import Prelude hiding (filter,length)
+import Clique (Clique)
+import Data.Int (Int64)
 import qualified Data.List as List
 import Data.Array.Unboxed (UArray,array)
 import qualified Data.Array.Unboxed as Arr
@@ -39,30 +39,32 @@ import Data.Vector hiding (foldr,(++))
 import Data.Bits
 import Data.Maybe
 import Data.Vector.Unboxed.Mutable (unsafeWrite)
+import GraphBitSet (GraphBitSet)
 
 type BitSet = UVect.Vector Bool
 
--- | pretty print the result.
-printSolution :: UVect.Vector Int -> String
-printSolution solution = show (Prelude.map (+1) indexes)
+sequentialMaxCliqueBBMC :: Int               -- ^ number of nodes
+                        -> [(Int,Int)]       -- ^ list of edges from 'parseDIMACS2'
+                        -> (Clique, Int64)   -- ^ result
+sequentialMaxCliqueBBMC !n !edges = (clique,0)
+    where
+      arrZeros  = array ((0,0),(n-1,n-1)) [((x,y),False) | x <- [0..n-1], y <- [0..n-1]]
+      adjMatrixI :: GraphBitSet
+      adjMatrixI = (Arr.//) arrZeros  [((x-1,y-1), True) | (x,y) <- edges]
+      adjMatrix = (Arr.//) adjMatrixI [((y-1,x-1), True) | (x,y) <- edges]
+      degree = UVect.fromList (Prelude.map (\i -> List.length (List.filter (==True) (List.map (\j -> (Arr.!) adjMatrix (i,j)) [0..n-1]))) [0..n-1])
+      (_,_,_,bestSolution,maxSize) = searchMaxClique n adjMatrix degree
+      clique = (generateSolution bestSolution,maxSize)
+
+generateSolution :: UVect.Vector Int -> [Int]
+generateSolution solution = Prelude.map (+1) indexes
     where indexes = List.filter (\i -> (UVect.!) solution i == 1) [0..UVect.length solution-1]
 
--- | map the parsed graph into an adjaceny matrix and node degree count
-process :: (Int,[(Int,Int)])          -- ^ list of edges from 'parseDIMACS2'
-        -> (UArray (Int,Int) Bool,UVect.Vector Int) -- ^ adjacency matrix and node degrees
-process (!n,!edges) =
-    let arrZeros  = array ((0,0),(n-1,n-1)) [((x,y),False) | x <- [0..n-1], y <- [0..n-1]]
-        adjMatrixI :: UArray (Int,Int) Bool
-        adjMatrixI = (Arr.//) arrZeros  [((x-1,y-1), True) | (x,y) <- edges]
-        adjMatrix = (Arr.//) adjMatrixI [((y-1,x-1), True) | (x,y) <- edges]
-        degree = UVect.fromList (Prelude.map (\i -> List.length (List.filter (==True) (List.map (\j -> (Arr.!) adjMatrix (i,j)) [0..n-1]))) [0..n-1])
-    in (adjMatrix,degree)
-
 -- | initialises the Max Clique search
-search :: Int -> UArray (Int,Int) Bool
+searchMaxClique :: Int -> GraphBitSet
        -> UVect.Vector Int
-       -> (BitSet, UVect.Vector Bool, Int,UVect.Vector Int,Int)
-search !n bigAdjMatrix !degree =
+       -> (BitSet, BitSet, Int,UVect.Vector Int,Int)
+searchMaxClique !n bigAdjMatrix !degree =
     let nodes = 0
         maxSize = 0
         solution = UVect.generate n (const 0) :: UVect.Vector Int
@@ -73,15 +75,15 @@ search !n bigAdjMatrix !degree =
         (bigV',bigN',invN') = orderVertices bigV n bigAdjMatrix degree
     in bbMaxClique n bigP bigC bigV' bigN' invN' nodes maxSize solution
 
-bbMaxClique :: Int -> UVect.Vector Bool
-            -> UVect.Vector Bool
+bbMaxClique :: Int -> BitSet
+            -> BitSet
             -> Vector Vertex
-            -> Vector (UVect.Vector Bool)
-            -> Vector (UVect.Vector Bool)
+            -> Vector (BitSet)
+            -> Vector (BitSet)
             -> Int
             -> Int
             -> UVect.Vector Int
-            -> (BitSet, UVect.Vector Bool, Int,UVect.Vector Int,Int)
+            -> (BitSet, BitSet, Int,UVect.Vector Int,Int)
 bbMaxClique !n bigPT bigCT bigVT bigNT invNT !nodes !maxSize curSolutionT =
     go i bigPT bigCT maxSize nodes' curSolutionT
   where nodes' = nodes + 1
@@ -91,7 +93,7 @@ bbMaxClique !n bigPT bigCT bigVT bigNT invNT !nodes !maxSize curSolutionT =
         (colour',bigU') = bbColour bigPT bigUGen invNT colourGen
         i = m - 1
 
-        go :: Int -> UVect.Vector Bool -> UVect.Vector Bool -> Int -> Int -> UVect.Vector Int -> (BitSet, UVect.Vector Bool, Int,UVect.Vector Int,Int)
+        go :: Int -> BitSet -> BitSet -> Int -> Int -> UVect.Vector Int -> (BitSet, BitSet, Int,UVect.Vector Int,Int)
         go i bigP bigC maxSize nodes' bestSolution
            | i < 0 = (bigP,bigC,nodes',bestSolution,maxSize)
            | (UVect.!) colour' i + cardinality bigC <= maxSize = (bigP,bigC,nodes',bestSolution,maxSize)
@@ -122,17 +124,17 @@ bitsetAnd :: BitSet -> BitSet -> BitSet
 bitsetAnd = UVect.zipWith (.&.)
 {-# INLINE bitsetAnd #-}
 
-isEmpty :: UVect.Vector Bool -> Bool
+isEmpty :: BitSet -> Bool
 isEmpty = not . UVect.or
 {-# INLINE isEmpty #-}
 
-cardinality :: UVect.Vector Bool -> Int
+cardinality :: BitSet -> Int
 cardinality = UVect.foldl' (\acc x -> if x then acc+1 else acc) 0
 
 -- | this function takes the vast majority of runtime
-bbColour :: UVect.Vector Bool
+bbColour :: BitSet
          -> UVect.Vector Int
-         -> Vector (UVect.Vector Bool)
+         -> Vector (BitSet)
          -> UVect.Vector Int
          -> (UVect.Vector Int,UVect.Vector Int)
 bbColour bigPT bigUT invNT colourT = goOuter bigPT colourT colourClassT iT bigUT
@@ -186,11 +188,11 @@ instance Ord Vertex where
    else LT
 
 orderVertices ::Vector Vertex
-              -- -> Vector (UVect.Vector Bool)
-              -- -> Vector (UVect.Vector Bool)
-              -> Int -> UArray (Int,Int) Bool
+              -- -> Vector (BitSet)
+              -- -> Vector (BitSet)
+              -> Int -> GraphBitSet
               -> UVect.Vector Int
-              -> (Vector Vertex,Vector (UVect.Vector Bool),Vector (UVect.Vector Bool))
+              -> (Vector Vertex,Vector (BitSet),Vector (BitSet))
 orderVertices bigV {- bigN invN -} n bigAdjMatrix degree =
 
     let nebDegs = Prelude.map (\i ->
@@ -228,6 +230,6 @@ newVertex :: Int -> Int -> Vertex
 newVertex !idx !deg = Vertex idx deg 0
 {-# INLINE newVertex #-}
 
-firstSetBit :: UVect.Vector Bool -> Int
+firstSetBit :: BitSet -> Int
 firstSetBit = fromJust . UVect.findIndex id
 {-# INLINE firstSetBit #-}

@@ -27,7 +27,7 @@ import           Data.List                (delete, group, groupBy, sort, sortBy,
 import           Data.Monoid              (mconcat)
 import           Data.Maybe               (fromMaybe)
 
-import           Options.Applicative
+import           Options.Applicative hiding (defaultPrefs)
 
 import           System.Clock
 import           System.Environment       (getArgs)
@@ -41,7 +41,7 @@ import           DIMACParser              (parseDIMACS2)
 import           Graph
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
-import           Solvers.SequentialSolverBBMC (process,search,printSolution)
+import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
 import           Solvers.BonesSolver (broadcast, safeSkeleton)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
@@ -209,14 +209,9 @@ main = do
         evaluate (rnf bigCstar')
         return $ Just bigCstar'
     SequentialBBMC -> timeIOMs $ do
-      -- search :: Int -> Array (Int,Int) Int -> Vector Int -> (BitSet, Vector Bool, Int)
-      -- search n bigAdjMatrix degree
-      -- returns: (BitSet, Vector Bool, Int)
-      let (adjMatrix,degree) = process (n,edges)
-          (_,_,_,solution,maxSize) = search n adjMatrix degree
-      putStrLn ("Max clique size: " ++ show maxSize)
-      putStrLn ("Solution: " ++ printSolution solution)
-      return Nothing
+        let (bigCstar', !call') = sequentialMaxCliqueBBMC n edges
+        evaluate (rnf bigCstar')
+        return $ (Just bigCstar')
     ParallelBroadcast -> do
       register (Main.declareStatic <> Broadcast.declareStatic)
 
