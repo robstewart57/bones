@@ -18,6 +18,7 @@ executable bones-maxclique
   main-is:             Main.hs
   other-modules:       DIMACParser
                      , Graph
+                     , GraphBitSet
                      , Clique
                      , Solvers.SequentialSolver
                      , Solvers.SequentialSolverBBMC
