@@ -41,6 +41,7 @@ import           DIMACParser              (parseDIMACS2)
 import           Graph
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
+import           Solvers.SequentialSolverBBMC (process,search,printSolution)
 import           Solvers.BonesSolver (broadcast, safeSkeleton)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
@@ -71,6 +72,7 @@ diffTimeMs (TimeSpec s1 n1) (TimeSpec s2 n2) = fromIntegral (t2 - t1)
 -- Argument Handling
 --------------------------------------------------------------------------------
 data Algorithm = Sequential
+               | SequentialBBMC
                | ParallelBroadcast
                | SafeSkeleton
               deriving (Read, Show)
@@ -109,9 +111,10 @@ optionParser = Options
                <> short 'd'
                <> help "Spawn depth can effect many skeletons"
                ))
-  where printAlgorithms = "[Sequential,\
-                          \ ParallelBroadcast,\
-                          \ SafeSkeleton]"
+  where printAlgorithms = unlines ["[Sequential,"
+                                  ," SequentialBBMC,"
+                                  ," ParallelBroadcast,"
+                                  ," SafeSkeleton]"]
 
 optsParser = info (helper <*> optionParser)
              (  fullDesc
@@ -168,14 +171,14 @@ main = do
   let permute = not noPerm
 
   -- reading input graph
-  (uG, t_read) <- timeIOMs $ do
+  ((uG,n,edges), t_read) <- timeIOMs $ do
     input <- if null filename
                then getContents
                else readFile filename
     let (n, edges) = parseDIMACS2 input
     let uG' = mkUG n edges
     evaluate (rnf uG')
-    return uG'
+    return (uG',n,edges)
 
   when verbose $ do
     putStrLn $ "Time to construct (undirected) input graph: " ++ show t_read
@@ -205,6 +208,15 @@ main = do
         let (bigCstar', !calls') = sequentialMaxClique bigG
         evaluate (rnf bigCstar')
         return $ Just bigCstar'
+    SequentialBBMC -> timeIOMs $ do
+      -- search :: Int -> Array (Int,Int) Int -> Vector Int -> (BitSet, Vector Bool, Int)
+      -- search n bigAdjMatrix degree
+      -- returns: (BitSet, Vector Bool, Int)
+      let (adjMatrix,degree) = process (n,edges)
+          (_,_,_,solution,maxSize) = search n adjMatrix degree
+      putStrLn ("Max clique size: " ++ show maxSize)
+      putStrLn ("Solution: " ++ printSolution solution)
+      return Nothing
     ParallelBroadcast -> do
       register (Main.declareStatic <> Broadcast.declareStatic)
 
