@@ -25,24 +25,7 @@ library
                        , deepseq >= 1.3 && <1.5
                        , hdph       == 0.2.3
   default-language:    Haskell2010
-  ghc-options: -W -Wall
-
--- executable bones-exe
---   hs-source-dirs:      app
---   main-is:             Main.hs
---   ghc-options:         -threaded -rtsopts
---   build-depends:       base
---                      , bones
---   default-language:    Haskell2010
-
--- test-suite bones-test
---   type:                exitcode-stdio-1.0
---   hs-source-dirs:      test
---   main-is:             Spec.hs
---   build-depends:       base
---                      , bones
---   ghc-options:         -threaded -rtsopts
---   default-language:    Haskell2010
+  ghc-options: -W -Wall -O2
 
 source-repository head
   type:     git

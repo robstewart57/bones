@@ -83,7 +83,7 @@ search spawnDepth startingSol space bnd fs = do
          then spinGet res
          else do
           put taken (toClosure ())
-          safeBranchAndBoundSkeletonChild ( 0 , 0 , c , master , sol , rem , fs)
+          safeBranchAndBoundSkeletonChild (c , master , sol , rem , fs)
           return $ toClosure ()
 
       spawnTasksWithPrios (p, lst) (taken, task, c, sol, rem) =
@@ -102,11 +102,7 @@ spawnAtDepth ts master curDepth fs =
           l <- new
           g <- glob l
 
-          let prio  = 0
-              depth = -1
-              task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
-                                                                         , depth
-                                                                         , prio
+          let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
                                                                          , c
                                                                          , master
                                                                          , s
@@ -148,84 +144,6 @@ spawnAtDepth ts master curDepth fs =
 
            return $ zip3 cs (replicate (length spaces) sol) spaces
 
-spawnLevel :: [Closure c]
-           -> Closure s
-           -> Node
-           -> Int
-           -> Int
-           -> Closure a
-           -> Closure (BAndBFunctions a b c s)
-           -> Par ()
-spawnLevel allC@(seqC:cs) space master depth parentPrio sol fs = do
-
-  takenVars <- replicateM (length cs - 1) createIVars
-  let fs' = unClosure fs
-      (seqS:spaces) = tail $ scanl (flip (unClosure $ removeChoice fs')) space allC
-      tlen          = length cs
-      prios         = map getPriority [2, 3 .. tlen + 1]
-      rightTasks    = zipWith4 createTasks prios takenVars cs spaces
-
-  children <- zipWithM spawnTask prios rightTasks
-
-  let rtasks = zipWith4 (,,,) (map fst takenVars) children cs spaces
-
-      lprio  = getPriority 1
-      ltask  = safeBranchAndBoundSkeletonChild (  depth - 1
-                                                , lprio
-                                                , seqC
-                                                , master
-                                                , sol
-                                                , seqS
-                                                , fs
-                                                )
-
-  ltask >> handleRightTasks rtasks
-
-  where
-    createIVars = do
-      l <- new
-      g <- glob l
-      return (l, g)
-
-    -- This breaks when I add the prio parameter and I have no idea why.
-    createTasks prio (l, g) c space =
-      let nextDepth = depth - 1 in
-      $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
-                                                         , nextDepth
-                                                         , prio
-                                                         , c
-                                                         , master
-                                                         , sol
-                                                         , space
-                                                         , fs
-                                                         ) |])
-
-    spawnTask prio t = spawnWithPrio one prio t
-
-    getPriority :: Int -> Int
-    getPriority pos = if pos > 0
-                      then read $ show parentPrio ++ show pos
-                      else pos
-
-    -- Need to pass the correct priority here (fold over it).
-    handleRightTasks = foldM_ handleTask 2
-
-    handleTask prio (taken, res, c, space) = do
-      wasTaken <- probe taken
-      if wasTaken
-        then spinGet res >> return (prio + 1)
-        else do
-          put taken (toClosure ())
-          safeBranchAndBoundSkeletonChild ( depth - 1
-                                          , prio
-                                          , c
-                                          , master
-                                          , sol
-                                          , space
-                                          ,  fs
-                                          )
-          return (prio + 1)
-
 spinGet :: IVar a -> Par a
 spinGet v = do
   res <- tryGet v
@@ -238,15 +156,13 @@ spinGet v = do
 -- spawnDepth to expand and we can remove a pattern match case for performance.
 safeBranchAndBoundSkeletonChildTask ::
     ( GIVar (Closure ())
-    , Int
-    , Int
     , Closure c
     , Node
     , Closure a
     , Closure s
     , Closure (BAndBFunctions a b c s))
     -> Thunk (Par (Closure ()))
-safeBranchAndBoundSkeletonChildTask (taken, spawnDepth, prio, c, n, sol, remaining, fs) =
+safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs) =
   Thunk $ do
     -- Notify the parent that we are doing this task.
     -- The parent might start it's task before our signal reaches it
@@ -255,20 +171,18 @@ safeBranchAndBoundSkeletonChildTask (taken, spawnDepth, prio, c, n, sol, remaini
     res <- spinGet suc -- See if we should start or not
     if unClosure res
       then
-        safeBranchAndBoundSkeletonChild (spawnDepth, prio, c, n, sol, remaining, fs)
+        safeBranchAndBoundSkeletonChild (c, n, sol, remaining, fs)
       else
         return (toClosure ())
 
 safeBranchAndBoundSkeletonChild ::
-    ( Int
-    , Int
-    , Closure c
+    ( Closure c
     , Node
     , Closure a
     , Closure s
     , Closure (BAndBFunctions a b c s))
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild (depth, parentPrio, c, parent, sol, remaining, fs) = do
+safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs) = do
     bnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
@@ -278,18 +192,7 @@ safeBranchAndBoundSkeletonChild (depth, parentPrio, c, parent, sol, remaining, f
       then return $ toClosure ()
       else do
        (startingSol, _, remaining') <- (unClosure $ step fs') c sol remaining
-
-       -- Keep Spawning tasks
-       if depth >= 0
-         then do
-           choices <- (unClosure $ generateChoices fs') startingSol remaining'
-           case choices of
-             [] -> return $ toClosure ()
-             cs -> toClosure <$> spawnLevel cs remaining' parent depth parentPrio startingSol fs
-
-       -- Switch to sequential
-         else
-           toClosure <$> safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs
+       toClosure <$> safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs
 
 safeBranchAndBoundSkeletonExpand ::
        Node
@@ -366,13 +269,6 @@ bAndb_updateParentBest ((sol, bnd), fs) = Thunk $ do
     mapM_ (pushTo $(mkClosure [| bAndb_updateLocalBounds (bnd, fs) |])) ns
 
   return $ toClosure ()
-
---------------------------------------------------------------------------------
--- Helper functions
---------------------------------------------------------------------------------
-zipWith4 :: (a -> b -> c -> d -> e) -> [a] -> [b] -> [c] -> [d] -> [e]
-zipWith4 f (a:as) (b:bs) (c:cs) (d:ds) = f a b c d : zipWith4 f as bs cs ds
-zipWith4 _ _ _ _ _ = []
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl
