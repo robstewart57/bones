@@ -11,9 +11,11 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         ToClosure, allNodes, declare, get, here,
                                         io, locToClosure, mkClosure, myNode,
                                         one, pushTo, spawn, spawnAt, static,
+
                                         staticToClosure, toClosure, unClosure)
 
 import           Control.Monad         (forM_, when)
+import           Data.Maybe            (fromMaybe)
 
 import           Data.IORef            (IORef, atomicModifyIORef')
 
@@ -33,12 +35,13 @@ instance ToClosure () where
 --- Skeleton Functionality
 --------------------------------------------------------------------------------
 
-search :: Closure a
+search :: Maybe Int
+       -> Closure a
        -> Closure s
        -> Closure b
        -> Closure (BAndBFunctions a b c s)
        -> Par a
-search startingSol space bnd fs' = do
+search depth startingSol space bnd fs' = do
   master <- myNode
   ns     <- allNodes
 
@@ -53,8 +56,10 @@ search startingSol space bnd fs' = do
 
   -- Generating the starting tasks remembering to remove choices from their left
   -- from the starting "remaining" set
-  let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
-              in  zipWith (createChildren master) sr ts
+
+  let depth' = fromMaybe 0 depth
+      tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
+              in  zipWith (createChildren depth' master) sr ts
 
   children <- mapM (spawn one) (reverse tasks)
   mapM_ get children
@@ -65,18 +70,19 @@ search startingSol space bnd fs' = do
         io $ addToRegistry solutionKey (startingSol, bnd)
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
 
-      createChildren m rem c =
-        $(mkClosure [| branchAndBoundChild (m, c, startingSol, rem, fs') |])
+      createChildren d m rem c =
+          $(mkClosure [| branchAndBoundChild (d, m, c, startingSol, rem, fs') |])
 
 branchAndBoundChild ::
-    ( Node
+    ( Int
+    , Node
     , Closure c
     , Closure a
     , Closure s
     , Closure (BAndBFunctions a b c s)
     )
     -> Thunk (Par (Closure ()))
-branchAndBoundChild (n, c, sol, rem, fs') =
+branchAndBoundChild (spawnDepth, n, c, sol, rem, fs') =
   Thunk $ do
     let fs = unClosure fs'
 
@@ -85,22 +91,24 @@ branchAndBoundChild (n, c, sol, rem, fs') =
         return $ toClosure ()
     else do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
-        toClosure <$> branchAndBoundExpand n startingSol rem' fs'
+        toClosure <$> branchAndBoundExpand spawnDepth n startingSol rem' fs'
 
 branchAndBoundExpand ::
-       Node
+       Int
+    -> Node
     -> Closure a
     -> Closure s
     -> Closure (BAndBFunctions a b c s)
     -> Par ()
-branchAndBoundExpand parent sol rem fs' = do
+branchAndBoundExpand depth parent sol rem fs' = do
   let fs  = unClosure fs'
 
   choices <- (unClosure $ generateChoices fs) sol rem
 
-  go sol rem choices fs
-    where go sol remaining [] fs      = return ()
-          go sol remaining (c:cs) fs  = do
+  go depth sol rem choices fs
+    where go depth sol remaining [] fs      = return ()
+
+          go 0 sol remaining (c:cs) fs  = do
             bnd <- io $ readFromRegistry boundKey
 
             if (unClosure $ shouldPrune fs) c sol bnd then
@@ -112,10 +120,21 @@ branchAndBoundExpand parent sol rem fs' = do
                  bAndb_parUpdateLocalBounds newBnd fs'
                  bAndb_notifyParentOfNewBest parent (newSol, newBnd) fs'
 
-              branchAndBoundExpand parent newSol remaining' fs'
+              branchAndBoundExpand depth parent newSol remaining' fs'
 
               let remaining'' = (unClosure $ removeChoice fs) c remaining
-              go sol remaining'' cs fs
+              go 0 sol remaining'' cs fs
+
+           -- Spawn New Tasks
+          go depth sol remaining cs fs = do
+            let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) remaining cs
+                        in  zipWith (createChildren (depth - 1) parent) sr cs
+
+            children <- mapM (spawn one) (reverse tasks)
+            mapM_ get children
+
+          createChildren sdepth m rem c =
+            $(mkClosure [| branchAndBoundChild (sdepth, m, c, sol, rem, fs') |])
 
 bAndb_parUpdateLocalBounds :: Closure b
                            -> Closure (BAndBFunctions a b c s)
