@@ -57,7 +57,7 @@ search startingSol space bnd fs' = do
               in  zipWith (createChildren master) sr ts
 
   children <- mapM (spawn one) (reverse tasks)
-  mapM get children
+  mapM_ get children
 
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
