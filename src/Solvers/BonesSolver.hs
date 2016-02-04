@@ -105,9 +105,10 @@ removeFromSpace c vs =
 -- Calling functions
 --------------------------------------------------------------------------------
 
-broadcast :: Graph -> Par Clique
-broadcast g = do
+broadcast :: Graph -> Maybe Int -> Par Clique
+broadcast g depth = do
   vs <- Broadcast.search
+        depth
         (toClosureListVertex ([] :: [Vertex]))
         (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
         (toClosureInt (0 :: Int))

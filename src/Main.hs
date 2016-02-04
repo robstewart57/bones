@@ -219,7 +219,7 @@ main = do
       graph <- newIORef bigG
       addGlobalSearchSpaceToRegistry graph
 
-      timeIOMs $ evaluate =<< runParIO conf (broadcast bigG)
+      timeIOMs $ evaluate =<< runParIO conf (broadcast bigG depth)
     SafeSkeleton -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
