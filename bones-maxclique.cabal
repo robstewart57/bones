@@ -23,7 +23,7 @@ executable bones-maxclique
                      , Solvers.SequentialSolver
                      , Solvers.SequentialSolverBBMC
                      , Solvers.BonesSolver
-  ghc-options:         -threaded -rtsopts
+  ghc-options:         -threaded -rtsopts -O2
   build-depends:       array >=0.5 && <0.6
                      , base > 4.7 && < 5
                      , bones == 0.1.0.0
@@ -35,15 +35,6 @@ executable bones-maxclique
                      , optparse-applicative >= 0.11 && < 0.12
                      , hdph  == 0.2.3
                      , vector >= 0.10.12
-  default-language:    Haskell2010
-
-test-suite bones-maxclique-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
-  main-is:             Spec.hs
-  build-depends:       base
-                     , bones-maxclique
-  ghc-options:         -threaded -rtsopts
   default-language:    Haskell2010
 
 source-repository head
