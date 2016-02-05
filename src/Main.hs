@@ -53,20 +53,33 @@ import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 -- Misc Functions
 --------------------------------------------------------------------------------
 
-timeIOMs :: IO a -> IO (a, Double)
-timeIOMs action = do
+timeIO :: (TimeSpec -> TimeSpec -> Double) -> IO a -> IO (a, Double)
+timeIO diffT action = do
   s <- getTime Monotonic
   x <- action
   e <- getTime Monotonic
-  return (x, diffTimeMs s e)
+  return (x, diffT s e)
 
-diffTimeMs :: TimeSpec -> TimeSpec -> Double
-diffTimeMs (TimeSpec s1 n1) (TimeSpec s2 n2) = fromIntegral (t2 - t1)
-                                                          /
-                                               fromIntegral (10 ^ 6)
+diffTime :: Integral a => a -> TimeSpec -> TimeSpec -> Double
+diffTime factor (TimeSpec s1 n1) (TimeSpec s2 n2) = fromIntegral (t2 - t1)
+                                                         /
+                                                    fromIntegral factor
   where t1 = (fromIntegral s1 * 10 ^ 9) + fromIntegral n1
         t2 = (fromIntegral s2 * 10 ^ 9) + fromIntegral n2
+  
 
+diffTimeMs :: TimeSpec -> TimeSpec -> Double
+diffTimeMs = diffTime (10 ^ 6)
+
+diffTimeS :: TimeSpec -> TimeSpec -> Double
+diffTimeS = diffTime (10 ^ 9)
+
+
+timeIOMs :: IO a -> IO (a, Double)
+timeIOMs = timeIO diffTimeMs
+
+timeIOS :: IO a -> IO (a, Double)
+timeIOS = timeIO diffTimeS
 
 --------------------------------------------------------------------------------
 -- Argument Handling
@@ -204,11 +217,11 @@ main = do
 
   -- Run (and time) the max clique algorithm
   (res, t_compute) <- case algorithm of
-    Sequential -> timeIOMs $ do
+    Sequential -> timeIOS $ do
         let (bigCstar', !calls') = sequentialMaxClique bigG
         evaluate (rnf bigCstar')
         return $ Just bigCstar'
-    SequentialBBMC -> timeIOMs $ do
+    SequentialBBMC -> timeIOS $ do
         let (bigCstar', !call') = sequentialMaxCliqueBBMC n edges
         evaluate (rnf bigCstar')
         return $ (Just bigCstar')
@@ -219,7 +232,7 @@ main = do
       graph <- newIORef bigG
       addGlobalSearchSpaceToRegistry graph
 
-      timeIOMs $ evaluate =<< runParIO conf (broadcast bigG depth)
+      timeIOS $ evaluate =<< runParIO conf (broadcast bigG depth)
     SafeSkeleton -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
@@ -228,7 +241,7 @@ main = do
       addGlobalSearchSpaceToRegistry graph
 
       let depth' = fromMaybe 0 depth
-      timeIOMs $ evaluate =<< runParIO conf (safeSkeleton bigG depth')
+      timeIOS $ evaluate =<< runParIO conf (safeSkeleton bigG depth')
 
   case res of
     Nothing -> exitSuccess
@@ -239,5 +252,5 @@ main = do
       putStrLn $ "sort C*: " ++ show (sort bigCstar_alpha_inv)
       putStrLn $ "size: " ++ show clqSize
       putStrLn $ "isClique: " ++ show (isClique bigG clq)
-      putStrLn $ "t_compute: " ++ show t_compute ++ "ms"
+      putStrLn $ "t_compute: " ++ show t_compute ++ " s"
       exitSuccess
