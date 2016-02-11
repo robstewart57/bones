@@ -42,7 +42,7 @@ import           Graph
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
-import           Solvers.BonesSolver (broadcast, safeSkeleton)
+import           Solvers.BonesSolver (broadcast, safeSkeleton, safeSkeletonDynamic)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
@@ -88,6 +88,7 @@ data Algorithm = Sequential
                | SequentialBBMC
                | ParallelBroadcast
                | SafeSkeleton
+               | SafeSkeletonDynamic
               deriving (Read, Show)
 
 data Options = Options
@@ -96,6 +97,7 @@ data Options = Options
   , noPerm     :: Bool
   , verbose    :: Bool
   , spawnDepth :: Maybe Int
+  , numTasks   :: Maybe Int
   }
 
 optionParser :: Parser Options
@@ -124,10 +126,16 @@ optionParser = Options
                <> short 'd'
                <> help "Spawn depth can effect many skeletons"
                ))
+           <*> optional (option auto
+               (  long "NumDynamicTasks"
+               <> short 't'
+               <> help "Number of Tasks to attempt to keep in the Dynamic WorkQueue"
+               ))
   where printAlgorithms = unlines ["[Sequential,"
                                   ," SequentialBBMC,"
                                   ," ParallelBroadcast,"
-                                  ," SafeSkeleton]"]
+                                  ," SafeSkeleton"
+                                  ," SafeSkeletonDynamic]"]
 
 optsParser = info (helper <*> optionParser)
              (  fullDesc
@@ -177,9 +185,9 @@ main = do
   args <- getArgs
   (conf, seed, args') <- parseHdpHOpts args
 
-  (Options algorithm filename noPerm
-              verbose depth) <- handleParseResult $
-    execParserPure defaultPrefs optsParser args'
+  (Options
+   algorithm filename noPerm
+   verbose depth numTasks) <- handleParseResult $ execParserPure defaultPrefs optsParser args'
 
   let permute = not noPerm
 
@@ -242,6 +250,19 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (safeSkeleton bigG depth')
+    SafeSkeletonDynamic -> do
+      register (Main.declareStatic <> Safe.declareStatic)
+
+      -- -- Make sure the graph is available globally
+      graph <- newIORef bigG
+      addGlobalSearchSpaceToRegistry graph
+
+      let depth'  = fromMaybe 0 depth
+          ntasks = fromMaybe 0 numTasks
+
+      if ntasks == 0
+        then error "Must provide the NumDynamicTasks (-t) argument when using dynamic work generation"
+        else timeIOS $ evaluate =<< runParIO conf (safeSkeletonDynamic bigG depth' ntasks)
 
   case res of
     Nothing -> exitSuccess

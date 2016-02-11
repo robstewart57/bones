@@ -6,6 +6,7 @@
 module Solvers.BonesSolver (
     broadcast
   , safeSkeleton
+  , safeSkeletonDynamic
   , declareStatic) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
@@ -124,6 +125,23 @@ broadcast g depth = do
 safeSkeleton :: Graph -> Int -> Par Clique
 safeSkeleton g depth = do
   vs <- Safe.search
+        depth
+        (toClosureListVertex ([] :: [Vertex]))
+        (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
+        (toClosureInt (0 :: Int))
+        (toClosure (BAndBFunctions
+          $(mkClosure [| generateChoices |])
+          $(mkClosure [| shouldPrune |])
+          $(mkClosure [| shouldUpdateBound |])
+          $(mkClosure [| step |])
+          $(mkClosure [| removeFromSpace |])))
+
+  return (vs, length vs)
+
+safeSkeletonDynamic :: Graph -> Int -> Int -> Par Clique
+safeSkeletonDynamic g depth ntasks = do
+  vs <- Safe.searchDynamic
+        ntasks
         depth
         (toClosureListVertex ([] :: [Vertex]))
         (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)

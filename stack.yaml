@@ -12,7 +12,7 @@ packages:
     commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
 - location:
     git: git@github.com:BlairArchibald/bones.git
-    commit: 3c0c55fff2e6512d31507cb5150ac21bd61c0eee
+    commit: 3ed6082af87044a69fc6f7efeb1c478f1e147e2b
 
 extra-deps: []
 resolver: lts-3.9
