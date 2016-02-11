@@ -16,7 +16,7 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         put, new, glob, tryGet, tryRPut, fork)
 
 import           Control.Monad         (forM_, forM, foldM, foldM_, when, replicateM, zipWithM)
--- import           Control.Concurrent.Chan
+
 import           Control.Concurrent.STM (atomically)
 import           Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
 
@@ -378,11 +378,10 @@ taskGenerator toplvl m depth fs tq n = do
 
         -- SpawnNewTask always gets a task when one is available
         (task, tl) <- spawnNewTask taskList 
-        case task o
-  f
+        case task of
           Just t -> do
-            (prio', s, t) <- spawnTaskWithPrio prio t
-            io . atomically $ writeTChan tq (Task t) 
+            (prio', s, t') <- spawnTaskWithPrio prio t
+            io . atomically $ writeTChan tq (Task t') 
             generateNewTasks tl (s:signalList) prio'
           Nothing -> io . atomically $ writeTChan tq Done
 
