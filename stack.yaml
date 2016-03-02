@@ -13,6 +13,9 @@ packages:
 - location:
     git: git@github.com:BlairArchibald/bones.git
     commit: 3ed6082af87044a69fc6f7efeb1c478f1e147e2b
+- location:
+    git: http://code.mathr.co.uk/bitwise.git
+    commit: 158ec3c370c2008d6a7b525346b07c57827a202b
 
 extra-deps: []
 resolver: lts-3.9
