@@ -22,11 +22,6 @@ module Solvers.SequentialSolverBBMC
   function as it is written in the algorithm. The inner `while` loop from
   line 29 correspondds to bbColour.goInner in this Haskell module. It is
   here that the runtime spends most of its time.
-
-  This module is unfortunately a lot significantly slower than the
-  other sequential algorithm in the 'Sequential' module and the
-  reference Java code BBMC.java. The bottleneck is bbColour.goInner. This bitset
-  version though can be parallelised, see Chapter 3 of the above PDF document.
 -}
 
 import Prelude hiding (filter,length)
@@ -43,6 +38,7 @@ import Data.Vector.Unboxed.Mutable (unsafeWrite)
 import GraphBitSet (GraphBitSet)
 import qualified Data.Array.BitArray as BA
 import Debug.Trace
+import Control.Parallel
 
 -- type BitSet = U.Vector Bool
 type BitSet = BA.BitArray Int
@@ -63,10 +59,6 @@ sequentialMaxCliqueBBMC !n !edges = (clique,0)
 generateSolution :: BitSet -> [Int]
 generateSolution bs = List.concat $ List.zipWith (\b i -> if b then [i] else []) (BA.elems bs) [0..]
 
--- generateSolution :: U.Vector Int -> [Int]
--- generateSolution solution = Prelude.map (+1) indexes
---     where indexes = List.filter (\i -> (U.!) solution i == 1) [0..U.length solution-1]
-
 instance Show (BA.BitArray Int) where
     show a = show (BA.elems a)
 
@@ -79,9 +71,7 @@ searchMaxClique
 searchMaxClique !n bigAdjMatrix !degree =
     let nodes = 0
         maxSize = 0
-        solution = BA.false (0,n-1) :: BitSet -- U.generate n (const 0)
-        -- bigC = U.generate n (const False)
-        -- bigP = U.generate n (const True)
+        solution = BA.false (0,n-1) :: BitSet
         bigC = BA.false (0,n-1)
         bigP = BA.true (0,n-1)
         bigV :: Vector Vertex
@@ -119,13 +109,12 @@ bbMaxClique !n bigPT bigCT bigVT bigNT invNT !nodes !maxSize curSolutionT =
                in
                  let (maxSize',bestSolution') =
                                     if isEmpty newP && (cardinality bigC' > maxSize)
-                                    then let -- newSolution :: U.Vector Int
+                                    then let
                                              newSolution :: BitSet
                                              newSolution =
                                                  foldr (\i solutionSt ->
                                                             if (BA.!!!) bigC' i
                                                             then modVecElem solutionSt (idxV ((!) bigVT i)) True
---                                                            else solutionSt) (U.generate n (const 0)) [0..(U.length bigC' - 1)]
                                                             else solutionSt) (BA.false (0,n-1)) [0..(let (_,n) = BA.bounds bigC'
                                                                                                    in n - 1)]
                                              newSize = cardinality bigC'
@@ -139,15 +128,16 @@ bbMaxClique !n bigPT bigCT bigVT bigNT invNT !nodes !maxSize curSolutionT =
 
 
 bitsetAnd :: BitSet -> BitSet -> BitSet
-bitsetAnd !bs1 !bs2 = BA.zipWith (.&.) bs1 bs2 -- U.zipWith (.&.)
+bitsetAnd !bs1 !bs2 = BA.zipWith (.&.) bs1 bs2
 {-# INLINE bitsetAnd #-}
 
 isEmpty :: BitSet -> Bool
-isEmpty = not . BA.or -- not . U.or
+isEmpty = not . BA.or
 {-# INLINE isEmpty #-}
 
 cardinality :: BitSet -> Int
 cardinality !bs = BA.popCount bs
+{-# INLINE cardinality #-}
 
 -- | this function takes the vast majority of runtime
 bbColour :: BitSet
@@ -155,10 +145,9 @@ bbColour :: BitSet
          -> Vector (BitSet)
          -> U.Vector Int
          -> (U.Vector Int,U.Vector Int)
-bbColour bigPT bigUT invNT colourT = goOuter bigPT colourT colourClassT iT bigUT
+bbColour bigPT bigUT invNT colourT = goOuter bigPT colourT colourClassT 0 bigUT
    where
      colourClassT = 0 :: Int
-     iT = 0
 
      goOuter bigP' colour colourClass i bigU =
          if isEmpty bigP'
@@ -170,27 +159,33 @@ bbColour bigPT bigUT invNT colourT = goOuter bigPT colourT colourClassT iT bigUT
                      in goInner bigP' bigQ bigU colourClass' colour i
              in goOuter bigP'' colour' (colourClass + 1) i' bigU'
 
-     -- goInner :: BitSet -> BitSet -> U.Vector Int -> Int -> U.Vector Int -> Int -> (BitSet
-     goInner !bigP !bigQ !bigU !colourClass !colour !i = goInnerDo bigP bigQ bigU colour i
+     goInner :: BitSet -> BitSet -> U.Vector Int -> Int -> U.Vector Int -> Int -> (BitSet, U.Vector Int, Int, U.Vector Int)
+     goInner !bigP !bigQ !bigU !colourClass !colour !iT = goInnerDo bigP bigQ bigU colour iT
          where
-           goInnerDo !bigP !bigQ !bigU !colour !i =
-               if isEmpty bigQ
-               then (bigP,colour,i,bigU)
+           goInnerDo p q u !color !i =
+               if isEmpty q
+               then (p,color,i,u)
                else
-             let !v = firstSetBit bigQ
-                 !bigP'  = modVecElem bigP v False
-                 !bigQ'  = modVecElem bigQ v False
-                 !bigQ'' = bitsetAnd bigQ' ((!) invNT v)
-                 !bigU'  = modIntVecElem bigU i v
-                 colour' = modIntVecElem colour i colourClass
-                 !i'      = i + 1
-             in goInnerDo bigP' bigQ'' bigU' colour' i'
+                    let !v = firstSetBit q
+                        !p'  = (BA.//) p [(v,False)]
+                        !q'  = (BA.//) q [(v,False)]
+                        !q'' = bitsetAnd q' ((!) invNT v)
+                        !u'  = U.modify (\mv -> unsafeWrite mv i v) u
+                        color' = modIntVecElem color i colourClass
+                        !i'      = i + 1 :: Int
+                    in goInnerDo p' q'' u' color' i'
+
+firstSetBit :: BitSet -> Int
+firstSetBit = fromJust . BA.elemIndex True
+{-# INLINE firstSetBit #-}
 
 modVecElem :: BitSet -> Int -> Bool -> BitSet
 modVecElem !vec !pos !v = (BA.//) vec [(pos,v)]
+{-# INLINE modVecElem #-}
 
 modIntVecElem :: U.Vector Int -> Int -> Int -> U.Vector Int
 modIntVecElem !vec !pos !v = U.modify (\mv -> unsafeWrite mv pos v) vec
+{-# INLINE modIntVecElem #-}
 
 data Vertex = Vertex
             { idxV    :: !Int
@@ -210,8 +205,6 @@ instance Ord Vertex where
    else LT
 
 orderVertices ::Vector Vertex
-              -- -> Vector (BitSet)
-              -- -> Vector (BitSet)
               -> Int -> GraphBitSet
               -> U.Vector Int
               -> (Vector Vertex,Vector (BitSet),Vector (BitSet))
@@ -252,7 +245,4 @@ orderVertices bigV {- bigN invN -} n bigAdjMatrix degree =
 
 newVertex :: Int -> Int -> Vertex
 newVertex !idx !deg = Vertex idx deg 0
--- {-# INLINE newVertex #-}
-
-firstSetBit :: BitSet -> Int
-firstSetBit = fromJust . BA.elemIndex True
+{-# INLINE newVertex #-}
