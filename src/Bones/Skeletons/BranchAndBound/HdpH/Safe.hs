@@ -142,10 +142,9 @@ spawnAtDepth ts master curDepth fs =
 
         bnd <- io $ readFromRegistry boundKey
 
-        io (putStrLn "stepingTask")
         -- Check if we can prune first to avoid any extra work
         if (unClosure $ shouldPrune fs') c sol bnd
-          then io (putStrLn "Pruning") >> return Nothing
+          then return Nothing
           else do
             (sol', _, remaining') <- (unClosure $ step fs') c sol remaining
             return $ Just (sol', remaining')
