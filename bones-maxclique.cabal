@@ -18,6 +18,7 @@ executable bones-maxclique
   main-is:             Main.hs
   other-modules:       DIMACParser
                      , Graph
+                     , GraphBitArray
                      , GraphBitSet
                      , Clique
                      , Solvers.SequentialSolver
@@ -27,6 +28,7 @@ executable bones-maxclique
   build-depends:       array >=0.5 && <0.6
                      , base > 4.7 && < 5
                      , bones == 0.1.0.0
+                     , bitArray == 0.1.0.0
                      , cereal >= 0.4
                      , clock >= 0.4.1 && < 0.6
                      , containers >=0.5 && <0.6

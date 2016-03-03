@@ -39,10 +39,12 @@ import           System.IO.Unsafe
 import           Clique                   (Clique, emptyClique, isClique)
 import           DIMACParser              (parseDIMACS2)
 import           Graph
+import           GraphBitArray
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
-import           Solvers.BonesSolver (broadcast, safeSkeleton, safeSkeletonDynamic)
+import           Solvers.BonesSolver (broadcast, safeSkeleton,
+                                      safeSkeletonDynamic, safeSkeletonBitArray)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
@@ -89,6 +91,7 @@ data Algorithm = Sequential
                | ParallelBroadcast
                | SafeSkeleton
                | SafeSkeletonDynamic
+               | SafeSkeletonBitArray
               deriving (Read, Show)
 
 data Options = Options
@@ -135,7 +138,8 @@ optionParser = Options
                                   ," SequentialBBMC,"
                                   ," ParallelBroadcast,"
                                   ," SafeSkeleton"
-                                  ," SafeSkeletonDynamic]"]
+                                  ," SafeSkeletonDynamic"
+                                  ," SafeSkeletonBitArray]"]
 
 optsParser = info (helper <*> optionParser)
              (  fullDesc
@@ -206,14 +210,15 @@ main = do
     printGraphStatistics uG
 
   -- permuting and converting input graph
-  ((alpha, bigG), t_permute) <- timeIOMs $ do
+  ((alpha, bigUG, bigG), t_permute) <- timeIOMs $ do
     let alpha' | permute   = antiMonotonizeDegreesPermUG uG
                | otherwise = Cat.id
         uG_alpha = appUG (inv permHH <<< alpha') uG
     -- uG_alpha in non-decreasing degree order, vertices numbered from 0.
         bigG' = mkG uG_alpha
     evaluate (rnf bigG')
-    return (alpha', bigG')
+    evaluate (rnf uG_alpha)
+    return (alpha', uG_alpha, bigG')
   when verbose $
     if permute
         then putStrLn $ "Time to Permute Graph: " ++ show t_permute
@@ -263,6 +268,19 @@ main = do
       if ntasks == 0
         then error "Must provide the NumDynamicTasks (-t) argument when using dynamic work generation"
         else timeIOS $ evaluate =<< runParIO conf (safeSkeletonDynamic bigG depth' ntasks)
+    SafeSkeletonBitArray -> do
+      register (Main.declareStatic <> Safe.declareStatic)
+
+      -- -- Make sure the graph is available globally
+
+      g  <- mkGraphArray bigUG
+      gC <- mkGraphArray $ complementUG bigUG
+
+      graph <- newIORef (g, gC)
+      addGlobalSearchSpaceToRegistry graph
+
+      let depth' = fromMaybe 0 depth
+      timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitArray n depth')
 
   case res of
     Nothing -> exitSuccess

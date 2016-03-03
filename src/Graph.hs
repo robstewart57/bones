@@ -88,6 +88,9 @@ appUG alpha =
   map ((\(u:vs) -> (u : sort vs)) . -- sort all adjacency lists
   (map $ app alpha))                 -- apply alpha to all vertices
 
+edgesUG :: UGraph -> [(Vertex,Vertex)]
+edgesUG uG = [(u,v) | u:vs <- uG, v <- vs]
+
 verticesUG :: UGraph -> [Vertex]
 verticesUG = map head
 
@@ -132,6 +135,17 @@ printGraphStatistics g = do
     toFractional :: (Real a, Fractional b) => a -> b
     toFractional = Prelude.fromRational . Prelude.toRational
 
+-- Computes the complement graph.
+complementUG :: UGraph -> UGraph
+complementUG uG = map (\ (u:vs) -> u : irrefl_compl u vs) uG
+  where
+    irrefl_compl u vs = diff (verticesUG uG) vs
+      where
+        diff xs     []     = delete u xs
+        diff (x:xs) (y:ys) | x < y     = [x | x /= u] ++ diff xs (y:ys)
+                           | x == y    = diff xs ys
+                           | otherwise = error "complementUG: PANIC!"
+
 ---------------------------------------------------------------------------
 -- vertex sets, represented as sets of Ints
 
@@ -170,7 +184,6 @@ isAdjacentG bigG u v = VertexSet.member v $ adjacentG bigG u
 
 degreeG :: Graph -> Vertex -> Int
 degreeG bigG = VertexSet.size . adjacentG bigG
-
 
 ---------------------------------------------------------------------------
 -- greedy colouring
