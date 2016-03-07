@@ -297,9 +297,14 @@ declareStatic = mconcat
   , declare $(static 'step)
   , declare $(static 'removeFromSpace)
 
+  , declare $(static 'generateChoicesBitArray)
+  , declare $(static 'stepBitArray)
+  , declare $(static 'removeFromBitArray)
+
   -- Explicit toClosure
   , declare $(static 'toClosureInt_abs)
   , declare $(static 'toClosureListVertex_abs)
   , declare $(static 'toClosureVertexSet_abs)
   , declare $(static 'toClosureColourOrder_abs)
+  , declare $(static 'toClosureIBitArray_abs)
   ]
