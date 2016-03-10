@@ -158,7 +158,9 @@ spawnAtDepth ts master maxDepth curDepth fs =
            let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) remaining cs
 
            -- Best to update the priorities here
-           return $ map (\c -> (p + (maxDepth - curDepth) * p,c)) (zip3 cs (replicate (length spaces) sol) spaces)
+           return $ zipWith (\i c -> (p * i,c)) (0 : inf (maxDepth - curDepth + 1)) (zip3 cs (replicate (length spaces) sol) spaces)
+
+       inf x = x : inf x
 
 spinGet :: IVar a -> Par a
 spinGet v = do
