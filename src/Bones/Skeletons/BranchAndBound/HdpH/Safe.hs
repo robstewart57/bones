@@ -21,9 +21,12 @@ import           Control.Concurrent.STM (atomically)
 import           Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
 
 import           Data.IORef            (IORef, atomicModifyIORef')
+import           Data.List             (mapAccumL, sortBy)
 
 import           Data.Maybe            (catMaybes, mapMaybe)
 import           Data.Monoid           (mconcat)
+
+import           Data.Ord  (comparing)
 
 import           Bones.Skeletons.BranchAndBound.HdpH.Types
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
@@ -78,8 +81,12 @@ search spawnDepth startingSol space bnd fs = do
             tlc = zip (0 : ones) topLevelChoices
 
         tlist  <- spawnAtDepth tlc master spawnDepth spawnDepth fs
+        -- Sort the output so that we spawn high priority tasks first, this way
+        -- the work stealing doesn't steal the low priority tasks before the
+        -- high priorities
+        let ptlist = sortBy (comparing fst) $ prioritiseList tlist
 
-        tasksWithOrder <- foldM spawnTasksWithPrios [] tlist
+        tasksWithOrder <- foldM spawnTasksWithPrios [] ptlist
 
         mapM_ (handleTask master) tasksWithOrder
 
@@ -92,8 +99,17 @@ search spawnDepth startingSol space bnd fs = do
           safeBranchAndBoundSkeletonChild (c , master , sol , rem , fs)
           return $ toClosure ()
 
-      spawnTasksWithPrios lst (p, taken, task, c, sol, rem) =
+      spawnTasksWithPrios lst (p, (taken, task, c, sol, rem)) =
         spawnWithPrio one p task >>= \res -> return ((taken, res, c, sol, rem):lst)
+
+      -- For each possible priority we want to assigning the next available prio to it by scanning the list multiple times
+      prioritiseList tlist = snd $ foldl (\(p, tl) cand -> updatePriorities p cand tl) (0, tlist) [ 0 .. fib (spawnDepth + 1)]
+
+      -- mapAccumL :: Traversable t => (a -> b -> (a, c)) -> a -> t b -> (a, t c)
+      updatePriorities pStart cand = mapAccumL (\a (p, t) -> if p == cand then (a + 1, (a, t)) else (a, (p,t))) pStart
+
+      fib n = fibs !! n
+      fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
 
 -- Probably really want [Par a] not Par [a]. How can I get this?
 spawnAtDepth ::
@@ -102,7 +118,7 @@ spawnAtDepth ::
            -> Int
            -> Int
            -> Closure (BAndBFunctions a b c s)
-           -> Par [(Int, IVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s)]
+           -> Par [(Int,(IVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
 spawnAtDepth ts master maxDepth curDepth fs =
   -- This seems to be getting forced early. I want to keep this lazy if possible!
   if curDepth == 0
@@ -122,7 +138,7 @@ spawnAtDepth ts master maxDepth curDepth fs =
                                                                          , fs
                                                                          ) |])
 
-          return (p, l, task, c, s, r)
+          return (p, (l, task, c, s, r))
     else do
       -- Apply step function to each task and continue spawning tasks
       -- We are given a "level" [(choice, sol, rem) | (choice', sol', rem')]
