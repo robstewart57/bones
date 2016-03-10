@@ -77,7 +77,7 @@ search spawnDepth startingSol space bnd fs = do
             ones = 1 : ones
             tlc = zip (0 : ones) topLevelChoices
 
-        tlist <- spawnAtDepth tlc master spawnDepth fs
+        tlist  <- spawnAtDepth tlc master spawnDepth spawnDepth fs
 
         tasksWithOrder <- foldM spawnTasksWithPrios [] tlist
 
@@ -94,16 +94,16 @@ search spawnDepth startingSol space bnd fs = do
 
       spawnTasksWithPrios lst (p, taken, task, c, sol, rem) =
         spawnWithPrio one p task >>= \res -> return ((taken, res, c, sol, rem):lst)
-  
 
 -- Probably really want [Par a] not Par [a]. How can I get this?
 spawnAtDepth ::
               [(Int, (Closure c, Closure a, Closure s))]
            -> Node
            -> Int
+           -> Int
            -> Closure (BAndBFunctions a b c s)
            -> Par [(Int, IVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s)]
-spawnAtDepth ts master curDepth fs =
+spawnAtDepth ts master maxDepth curDepth fs =
   -- This seems to be getting forced early. I want to keep this lazy if possible!
   if curDepth == 0
     then
@@ -134,7 +134,7 @@ spawnAtDepth ts master curDepth fs =
       -- This might be forcing the list. I don't want this - how do I fix it? No idea yet.
 
       -- and recurse
-      concat <$> mapM (\ts' -> spawnAtDepth ts' master (curDepth - 1) fs) newLevel
+      concat <$> mapM (\ts' -> spawnAtDepth ts' master maxDepth (curDepth - 1) fs) newLevel
 
   where
        -- I think I need scoped type variables if I really want to specify this type
@@ -157,7 +157,8 @@ spawnAtDepth ts master curDepth fs =
 
            let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) remaining cs
 
-           return $ map (\c -> (p,c)) (zip3 cs (replicate (length spaces) sol) spaces)
+           -- Best to update the priorities here
+           return $ map (\c -> (p + (maxDepth - curDepth) * p,c)) (zip3 cs (replicate (length spaces) sol) spaces)
 
 spinGet :: IVar a -> Par a
 spinGet v = do
