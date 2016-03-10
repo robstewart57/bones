@@ -74,10 +74,12 @@ search spawnDepth startingSol space bnd fs = do
 
         let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) space choices
             topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
+            ones = 1 : ones
+            tlc = zip (0 : ones) topLevelChoices
 
-        tlist <- spawnAtDepth topLevelChoices master spawnDepth fs
+        tlist <- spawnAtDepth tlc master spawnDepth fs
 
-        tasksWithOrder <- snd <$> foldM spawnTasksWithPrios (1,[]) tlist
+        tasksWithOrder <- foldM spawnTasksWithPrios [] tlist
 
         mapM_ (handleTask master) tasksWithOrder
 
@@ -90,22 +92,22 @@ search spawnDepth startingSol space bnd fs = do
           safeBranchAndBoundSkeletonChild (c , master , sol , rem , fs)
           return $ toClosure ()
 
-      spawnTasksWithPrios (p, lst) (taken, task, c, sol, rem) =
-        spawnWithPrio one p task >>= \res -> return (p + 1, (taken, res, c, sol, rem):lst)
+      spawnTasksWithPrios lst (p, taken, task, c, sol, rem) =
+        spawnWithPrio one p task >>= \res -> return ((taken, res, c, sol, rem):lst)
   
 
 -- Probably really want [Par a] not Par [a]. How can I get this?
 spawnAtDepth ::
-              [(Closure c, Closure a, Closure s)]
+              [(Int, (Closure c, Closure a, Closure s))]
            -> Node
            -> Int
            -> Closure (BAndBFunctions a b c s)
-           -> Par [(IVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s)]
+           -> Par [(Int, IVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s)]
 spawnAtDepth ts master curDepth fs =
   -- This seems to be getting forced early. I want to keep this lazy if possible!
   if curDepth == 0
     then
-        forM ts $ \(c,s,r) -> do
+        forM ts $ \(p, (c,s,r)) -> do
           -- Check pruning here as well? (It gets checked in the task but we may
           -- as well prune earlier if possible - this happens in another thread
           -- so it's not a big overhead?)
@@ -120,7 +122,7 @@ spawnAtDepth ts master curDepth fs =
                                                                          , fs
                                                                          ) |])
 
-          return (l, task, c, s, r)
+          return (p, l, task, c, s, r)
     else do
       -- Apply step function to each task and continue spawning tasks
       -- We are given a "level" [(choice, sol, rem) | (choice', sol', rem')]
@@ -137,7 +139,7 @@ spawnAtDepth ts master curDepth fs =
   where
        -- I think I need scoped type variables if I really want to specify this type
        -- stepSol :: (Closure c, Closure a, Closure r) -> Par (Maybe (Closure a, Closure r))
-       stepSol (c, sol, remaining) = do
+       stepSol (p, (c, sol, remaining)) = do
         let fs' = unClosure fs
 
         bnd <- io $ readFromRegistry boundKey
@@ -147,15 +149,15 @@ spawnAtDepth ts master curDepth fs =
           then return Nothing
           else do
             (sol', _, remaining') <- (unClosure $ step fs') c sol remaining
-            return $ Just (sol', remaining')
+            return $ Just (p, (sol', remaining'))
 
-       constructChoices (sol, remaining) = do
+       constructChoices (p, (sol, remaining)) = do
            let fs' = unClosure fs
            cs <- (unClosure $ generateChoices fs') sol remaining
 
            let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) remaining cs
 
-           return $ zip3 cs (replicate (length spaces) sol) spaces
+           return $ map (\c -> (p,c)) (zip3 cs (replicate (length spaces) sol) spaces)
 
 spinGet :: IVar a -> Par a
 spinGet v = do
