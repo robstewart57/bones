@@ -82,14 +82,11 @@ search spawnDepth startingSol space bnd fs = do
 
         tlist  <- spawnAtDepth tlc master spawnDepth spawnDepth fs
 
-        -- Sort the output so that we spawn high priority tasks first, this way
+        -- TODO: we probably want to sort the output so that we spawn high priority tasks first, this way
         -- the work stealing doesn't steal the low priority tasks before the
-        -- high priorities (this makes it difficult to get the sequential thread
-        -- in the right order - we could add a givar before spawning and pass
-        -- this around. Perhaps the easiest way). i.e use spark with prio
-        -- instead.
-        let ptlist = sortBy (comparing fst) $ prioritiseList tlist
-        tasksWithOrder <- mapM_ spawnTasksWithPrios ptlist
+        -- high priorities
+
+        tasksWithOrder <- mapM_ spawnTasksWithPrios tlist
 
         mapM_ (handleTask master) tlist
 
@@ -105,12 +102,6 @@ search spawnDepth startingSol space bnd fs = do
           return $ toClosure ()
 
       spawnTasksWithPrios (p, (taken, resM, resG, task, c, sol, rem)) = sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
-
-      -- For each possible priority we want to assigning the next available prio to it by scanning the list multiple times
-      prioritiseList tlist = snd $ foldl (\(p, tl) cand -> updatePriorities p cand tl) (0, tlist) [ 0 .. fib (spawnDepth + 1)]
-
-      -- mapAccumL :: Traversable t => (a -> b -> (a, c)) -> a -> t b -> (a, t c)
-      updatePriorities pStart cand = mapAccumL (\a (p, t) -> if p == cand then (a + 1, (a, t)) else (a, (p,t))) pStart
 
       fib n = fibs !! n
       fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
@@ -184,7 +175,7 @@ spawnAtDepth ts master maxDepth curDepth fs =
            let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) remaining cs
 
            -- Best to update the priorities here
-           return $ zipWith (\i c -> (p * i,c)) (0 : inf (maxDepth - curDepth + 1)) (zip3 cs (replicate (length spaces) sol) spaces)
+           return $ zipWith (\i c -> (p + i,c)) (0 : inf ((maxDepth + 2) - curDepth)) (zip3 cs (replicate (length spaces) sol) spaces)
 
        inf x = x : inf x
 
@@ -407,11 +398,11 @@ taskGenerator toplvl m depth fs tq n = do
         signalList <- getAny takenSignals
 
         -- SpawnNewTask always gets a task when one is available
-        (task, tl) <- spawnNewTask taskList 
+        (task, tl) <- spawnNewTask taskList
         case task of
           Just t -> do
             (prio', s, t') <- spawnTaskWithPrio prio t
-            io . atomically $ writeTChan tq (Task t') 
+            io . atomically $ writeTChan tq (Task t')
             generateNewTasks tl (s:signalList) prio'
           Nothing -> io . atomically $ writeTChan tq Done
 
