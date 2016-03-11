@@ -10,8 +10,8 @@ module Bones.Skeletons.BranchAndBound.HdpH.Safe
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         StaticToClosure, Thunk (Thunk),
                                         ToClosure, IVar, GIVar, allNodes, declare, get, here,
-                                        io, locToClosure, mkClosure, myNode,
-                                        one, pushTo, spawn, spawnAt, static, spawnWithPrio,
+                                        io, locToClosure, mkClosure, myNode, rput,
+                                        one, pushTo, spawn, spawnAt, static, spawnWithPrio, sparkWithPrio,
                                         staticToClosure, toClosure, unClosure, probe,
                                         put, new, glob, tryGet, tryRPut, fork)
 
@@ -81,26 +81,30 @@ search spawnDepth startingSol space bnd fs = do
             tlc = zip (0 : ones) topLevelChoices
 
         tlist  <- spawnAtDepth tlc master spawnDepth spawnDepth fs
+
         -- Sort the output so that we spawn high priority tasks first, this way
         -- the work stealing doesn't steal the low priority tasks before the
-        -- high priorities
+        -- high priorities (this makes it difficult to get the sequential thread
+        -- in the right order - we could add a givar before spawning and pass
+        -- this around. Perhaps the easiest way). i.e use spark with prio
+        -- instead.
         let ptlist = sortBy (comparing fst) $ prioritiseList tlist
+        tasksWithOrder <- mapM_ spawnTasksWithPrios ptlist
 
-        tasksWithOrder <- foldM spawnTasksWithPrios [] ptlist
+        mapM_ (handleTask master) tlist
 
-        mapM_ (handleTask master) tasksWithOrder
-
-      handleTask master (taken, res, c, sol, rem) = do
+      handleTask master (_, (taken, resM, resG, _, c, sol, rem)) = do
         wasTaken <- probe taken
         if wasTaken
-         then spinGet res
+         then spinGet resM
          else do
           put taken (toClosure ())
           safeBranchAndBoundSkeletonChild (c , master , sol , rem , fs)
+          -- Probably need to write to result for GC to take effect?
+          rput resG (toClosure ())
           return $ toClosure ()
 
-      spawnTasksWithPrios lst (p, (taken, task, c, sol, rem)) =
-        spawnWithPrio one p task >>= \res -> return ((taken, res, c, sol, rem):lst)
+      spawnTasksWithPrios (p, (taken, resM, resG, task, c, sol, rem)) = sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
 
       -- For each possible priority we want to assigning the next available prio to it by scanning the list multiple times
       prioritiseList tlist = snd $ foldl (\(p, tl) cand -> updatePriorities p cand tl) (0, tlist) [ 0 .. fib (spawnDepth + 1)]
@@ -111,6 +115,9 @@ search spawnDepth startingSol space bnd fs = do
       fib n = fibs !! n
       fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
 
+runAndFill :: (Closure (Par (Closure a)), GIVar (Closure a)) -> Thunk (Par ())
+runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
+
 -- Probably really want [Par a] not Par [a]. How can I get this?
 spawnAtDepth ::
               [(Int, (Closure c, Closure a, Closure s))]
@@ -118,7 +125,7 @@ spawnAtDepth ::
            -> Int
            -> Int
            -> Closure (BAndBFunctions a b c s)
-           -> Par [(Int,(IVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
+           -> Par [(Int,(IVar (Closure ()), IVar (Closure ()), GIVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
 spawnAtDepth ts master maxDepth curDepth fs =
   -- This seems to be getting forced early. I want to keep this lazy if possible!
   if curDepth == 0
@@ -127,8 +134,11 @@ spawnAtDepth ts master maxDepth curDepth fs =
           -- Check pruning here as well? (It gets checked in the task but we may
           -- as well prune earlier if possible - this happens in another thread
           -- so it's not a big overhead?)
-          l <- new
-          g <- glob l
+          taken <- new
+          g <- glob taken
+
+          resMaster <- new
+          resG <- glob resMaster 
 
           let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
                                                                          , c
@@ -138,7 +148,7 @@ spawnAtDepth ts master maxDepth curDepth fs =
                                                                          , fs
                                                                          ) |])
 
-          return (p, (l, task, c, s, r))
+          return (p, (taken, resMaster, resG, task, c, s, r))
     else do
       -- Apply step function to each task and continue spawning tasks
       -- We are given a "level" [(choice, sol, rem) | (choice', sol', rem')]
@@ -475,5 +485,6 @@ declareStatic = mconcat
   , declare $(static 'bAndb_updateParentBest)
   , declare $(static 'bAndb_updateLocalBounds)
   , declare $(static 'safeBranchAndBoundSkeletonChildTask)
+  , declare $(static 'runAndFill)
   , declare (staticToClosure :: StaticToClosure ())
   ]
