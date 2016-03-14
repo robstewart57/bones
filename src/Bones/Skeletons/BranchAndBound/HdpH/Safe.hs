@@ -42,13 +42,14 @@ instance ToClosure () where locToClosure = $(here)
 --------------------------------------------------------------------------------
 
 -- Safe B&B skeleton with a single WQ
-search :: Int
+search :: Bool
+       -> Int
        -> Closure a
        -> Closure s
        -> Closure b
        -> Closure (BAndBFunctions a b c s)
        -> Par a
-search spawnDepth startingSol space bnd fs = do
+search diversify spawnDepth startingSol space bnd fs = do
   let fs' = unClosure fs
 
   allNodes >>= initRegistries
@@ -68,13 +69,6 @@ search spawnDepth startingSol space bnd fs = do
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
 
       spawnAndExecuteTasks choices fs' master  = do
-        -- TODO: Build task list in parallel
-
-        -- Fold over it with a parSpawn function
-        --   Check depth == spawn depth: spawn and return ivar
-        --   else build a new list of tasks and fold over it
-        -- "Handle" The tasks based on the ivar ordering (which will be maintained)
-
         let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) space choices
             topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
             ones = 1 : ones
@@ -82,29 +76,30 @@ search spawnDepth startingSol space bnd fs = do
 
         tlist  <- spawnAtDepth tlc master spawnDepth spawnDepth fs
 
-        -- TODO: we probably want to sort the output so that we spawn high priority tasks first, this way
+        if diversify then
+        -- TODO: we possible want to sort the output so that we spawn high priority tasks first, this way
         -- the work stealing doesn't steal the low priority tasks before the
         -- high priorities
-
-        tasksWithOrder <- mapM_ spawnTasksWithPrios tlist
+          mapM_ spawnTasksWithPrios tlist
+        else
+          foldM_ spawnTasksLinear 0 tlist
 
         mapM_ (handleTask master) tlist
 
-      handleTask master (_, (taken, resM, resG, _, c, sol, rem)) = do
+      handleTask master (_, (taken, resM, _, _, c, sol, rem')) = do
         wasTaken <- probe taken
         if wasTaken
          then spinGet resM
          else do
           put taken (toClosure ())
-          safeBranchAndBoundSkeletonChild (c , master , sol , rem , fs)
-          -- Probably need to write to result for GC to take effect?
-          rput resG (toClosure ())
+          safeBranchAndBoundSkeletonChild (c , master , sol , rem' , fs) >>= put resM
           return $ toClosure ()
 
-      spawnTasksWithPrios (p, (taken, resM, resG, task, c, sol, rem)) = sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
+      spawnTasksWithPrios (p, (_, _, resG, task, _, _, _)) = sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
 
-      fib n = fibs !! n
-      fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
+      spawnTasksLinear p (_, (_, _, resG, task, _, _, _)) = do
+        sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
+        return $ p + 1
 
 runAndFill :: (Closure (Par (Closure a)), GIVar (Closure a)) -> Thunk (Par ())
 runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
