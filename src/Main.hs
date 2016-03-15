@@ -44,7 +44,7 @@ import           GraphBitArray
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
 import           Solvers.BonesSolver (broadcast, safeSkeleton,
-                                      safeSkeletonDynamic, safeSkeletonBitArray)
+                                      safeSkeletonDynamic, safeSkeletonBitSetArray)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
@@ -280,7 +280,7 @@ main = do
       addGlobalSearchSpaceToRegistry graph
 
       let depth' = fromMaybe 0 depth
-      timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitArray n depth')
+      timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitSetArray n depth')
 
   case res of
     Nothing -> exitSuccess

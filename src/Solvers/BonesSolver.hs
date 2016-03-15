@@ -7,7 +7,7 @@ module Solvers.BonesSolver (
     broadcast
   , safeSkeleton
   , safeSkeletonDynamic
-  , safeSkeletonBitArray
+  , safeSkeletonBitSetArray
   , declareStatic) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
@@ -27,14 +27,14 @@ import qualified Data.IntSet           as VertexSet (delete, difference,
 import           Data.IORef            (IORef, atomicModifyIORef', newIORef, readIORef)
 import           Data.Monoid           (mconcat)
 import           Data.Serialize        (Serialize)
-import qualified Data.BitArrayIO as ArrayVertexSet
-import           Data.BitArrayIO (BitArray(BA), IBitArray(IBA))
+import qualified Data.BitSetArrayIO as ArrayVertexSet
+import           Data.BitSetArrayIO (BitSetArray(BA), IBitSetArray(IBA))
 import           Data.Array.Unsafe
 import           Data.Array.Base
 import           Data.Word (Word64)
 import           Graph                 (Graph (G), Vertex, VertexSet, adjacentG,
                                         colourOrder, verticesG)
-import           GraphBitArray         (GraphArray, colourOrderBitArray, intersectAdjacency)
+import           GraphBitArray         (GraphArray, colourOrderBitSetArray, intersectAdjacency)
 import           Clique                (Clique, emptyClique)
 import           System.IO.Unsafe      (unsafePerformIO)
 
@@ -52,12 +52,12 @@ instance ToClosure [Vertex] where locToClosure = $(here)
 instance ToClosure (Vertex, Int) where locToClosure = $(here)
 instance ToClosure VertexSet where locToClosure = $(here)
 
-instance ToClosure (Int, IBitArray) where locToClosure = $(here)
+instance ToClosure (Int, IBitSetArray) where locToClosure = $(here)
 
 instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet) where
   locToClosure = $(here)
 
-instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitArray)) where
+instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray)) where
   locToClosure = $(here)
 
 --------------------------------------------------------------------------------
@@ -116,10 +116,10 @@ removeFromSpace c vs =
       vs'      = unClosure vs
   in (toClosureVertexSet $ VertexSet.delete v vs')
 
-generateChoicesBitArray :: Closure [Vertex]
-                        -> Closure (Int,IBitArray)
+generateChoicesBitSetArray :: Closure [Vertex]
+                        -> Closure (Int,IBitSetArray)
                         -> Par [Closure (Vertex, Int)]
-generateChoicesBitArray cur remaining = do
+generateChoicesBitSetArray cur remaining = do
   (_, gC) <- io $ readFromRegistry searchSpaceKey
 
   let (s, vs) = unClosure remaining
@@ -127,48 +127,48 @@ generateChoicesBitArray cur remaining = do
   if s == 0
     then return []
     else do
-      vs' <- io $ ArrayVertexSet.fromIArray vs
-      cs  <- io $ colourOrderBitArray gC vs' s
+      vs' <- io $ ArrayVertexSet.fromImmutable vs
+      cs  <- io $ colourOrderBitSetArray gC vs' s
       return $ map toClosureColourOrder cs
 
-stepBitArray :: Closure (Vertex, Int)
+stepBitSetArray :: Closure (Vertex, Int)
              -> Closure [Vertex]
-             -> Closure (Int, IBitArray)
-             -> Par (Closure [Vertex], Closure Int, Closure (Int,IBitArray))
-stepBitArray c sol vs = do
+             -> Closure (Int, IBitSetArray)
+             -> Par (Closure [Vertex], Closure Int, Closure (Int,IBitSetArray))
+stepBitSetArray c sol vs = do
   (g, _) <- io $ readFromRegistry searchSpaceKey
 
   let (v,col) = unClosure c
       sol'    = unClosure sol
       (s, vs')= unClosure vs
       newSol  = (v:sol')
-  vs'' <- io $ ArrayVertexSet.fromIArray vs'
+  vs'' <- io $ ArrayVertexSet.fromImmutable vs'
   (newVs, pc)  <- io $ intersectAdjacency vs'' g v -- Might not need copies now that removeChoice copies everything
-  newRemaining <- io $ ArrayVertexSet.toIArray newVs
+  newRemaining <- io $ ArrayVertexSet.makeImmutable newVs
 
   return ( toClosureListVertex newSol
          , toClosureInt (length newSol)
-         , toClosureIBitArray (pc, newRemaining)
+         , toClosureIBitSetArray (pc, newRemaining)
          )
 
 -- Hmm use unsafePerformIO? Maybe moving to ST would be easier, but how?
 -- Just change the skeleton for now?
-removeFromBitArray :: Closure (Vertex,Int)
-                   -> Closure (Int, IBitArray)
-                   -> Closure (Int, IBitArray)
-removeFromBitArray c vs =
+removeFromBitSetArray :: Closure (Vertex,Int)
+                   -> Closure (Int, IBitSetArray)
+                   -> Closure (Int, IBitSetArray)
+removeFromBitSetArray c vs =
   let (v, col) = unClosure c
       (s,vs')      = unClosure vs
 
       -- TODO: This probably wont work too well. Need to change the skeleton to allow Par effects (this makes sense anyway)
       -- This needs to be immutable for generating top level tasks.
       newA = unsafePerformIO $ do
-              mv <- ArrayVertexSet.fromIArray vs'
+              mv <- ArrayVertexSet.fromImmutable vs'
               vc <- ArrayVertexSet.copy mv
               ArrayVertexSet.remove v vc
-              ArrayVertexSet.toIArray vc
+              ArrayVertexSet.makeImmutable vc
 
-  in (toClosureIBitArray (s-1, newA))
+  in (toClosureIBitSetArray (s-1, newA))
 
 --------------------------------------------------------------------------------
 -- Calling functions
@@ -223,21 +223,21 @@ safeSkeletonDynamic g depth ntasks = do
 
   return (vs, length vs)
 
-safeSkeletonBitArray :: Int -> Int -> Par Clique
-safeSkeletonBitArray nVertices depth = do
-  initSet <- io $ setAll >>= ArrayVertexSet.toIArray
+safeSkeletonBitSetArray :: Int -> Int -> Par Clique
+safeSkeletonBitSetArray nVertices depth = do
+  initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
   vs <- Safe.search
         depth
         (toClosureListVertex ([] :: [Vertex]))
-        (toClosureIBitArray (nVertices, initSet))
+        (toClosureIBitSetArray (nVertices, initSet))
         (toClosureInt (0 :: Int))
         (toClosure (BAndBFunctions
-          $(mkClosure [| generateChoicesBitArray |])
+          $(mkClosure [| generateChoicesBitSetArray |])
           $(mkClosure [| shouldPrune |])
           $(mkClosure [| shouldUpdateBound |])
-          $(mkClosure [| stepBitArray |])
-          $(mkClosure [| removeFromBitArray |])))
+          $(mkClosure [| stepBitSetArray |])
+          $(mkClosure [| removeFromBitSetArray |])))
 
   return (vs, length vs)
 
@@ -273,11 +273,11 @@ toClosureColourOrder x = $(mkClosure [| toClosureColourOrder_abs x |])
 toClosureColourOrder_abs :: (Vertex, Int) -> Thunk (Vertex, Int)
 toClosureColourOrder_abs x = Thunk x
 
-toClosureIBitArray :: (Int, IBitArray) -> Closure (Int, IBitArray)
-toClosureIBitArray x = $(mkClosure [| toClosureIBitArray_abs x |])
+toClosureIBitSetArray :: (Int, IBitSetArray) -> Closure (Int, IBitSetArray)
+toClosureIBitSetArray x = $(mkClosure [| toClosureIBitSetArray_abs x |])
 
-toClosureIBitArray_abs :: (Int, IBitArray) -> Thunk (Int, IBitArray)
-toClosureIBitArray_abs x = Thunk x
+toClosureIBitSetArray_abs :: (Int, IBitSetArray) -> Thunk (Int, IBitSetArray)
+toClosureIBitSetArray_abs x = Thunk x
 
 $(return [])
 declareStatic :: StaticDecl
@@ -288,7 +288,7 @@ declareStatic = mconcat
   , declare (staticToClosure :: StaticToClosure VertexSet)
   , declare (staticToClosure :: StaticToClosure (Vertex, Int))
   , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet))
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitArray)))
+  , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray)))
 
   -- B&B Functions
   , declare $(static 'generateChoices)
@@ -297,14 +297,14 @@ declareStatic = mconcat
   , declare $(static 'step)
   , declare $(static 'removeFromSpace)
 
-  , declare $(static 'generateChoicesBitArray)
-  , declare $(static 'stepBitArray)
-  , declare $(static 'removeFromBitArray)
+  , declare $(static 'generateChoicesBitSetArray)
+  , declare $(static 'stepBitSetArray)
+  , declare $(static 'removeFromBitSetArray)
 
   -- Explicit toClosure
   , declare $(static 'toClosureInt_abs)
   , declare $(static 'toClosureListVertex_abs)
   , declare $(static 'toClosureVertexSet_abs)
   , declare $(static 'toClosureColourOrder_abs)
-  , declare $(static 'toClosureIBitArray_abs)
+  , declare $(static 'toClosureIBitSetArray_abs)
   ]
