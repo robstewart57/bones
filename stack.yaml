@@ -16,6 +16,9 @@ packages:
 - location:
     git: git@github.com:BlairArchibald/bitSetArray.git
     commit: 7382e2b9314c952d35e3196b85acd62ded7768fc
+- location:
+    git: http://code.mathr.co.uk/bitwise.git
+    commit: 158ec3c370c2008d6a7b525346b07c57827a202b
 
 extra-deps: []
 resolver: lts-3.9
