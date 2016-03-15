@@ -95,12 +95,13 @@ data Algorithm = Sequential
               deriving (Read, Show)
 
 data Options = Options
-  { algorithm  :: Algorithm
-  , dataFile   :: FilePath
-  , noPerm     :: Bool
-  , verbose    :: Bool
-  , spawnDepth :: Maybe Int
-  , numTasks   :: Maybe Int
+  { algorithm   :: Algorithm
+  , dataFile    :: FilePath
+  , noPerm      :: Bool
+  , verbose     :: Bool
+  , discrepancy :: Bool
+  , spawnDepth  :: Maybe Int
+  , numTasks    :: Maybe Int
   }
 
 optionParser :: Parser Options
@@ -123,6 +124,10 @@ optionParser = Options
                (  long "verbose"
                <> short 'v'
                <> help "Enable verbose output"
+               )
+           <*> switch
+               (  long "discrepancySearch"
+               <> help "Use discrepancy search in parallel."
                )
            <*> optional (option auto
                (  long "spawnDepth"
@@ -191,7 +196,7 @@ main = do
 
   (Options
    algorithm filename noPerm
-   verbose depth numTasks) <- handleParseResult $ execParserPure defaultPrefs optsParser args'
+   verbose discrepancySearch depth numTasks) <- handleParseResult $ execParserPure defaultPrefs optsParser args'
 
   let permute = not noPerm
 
@@ -254,7 +259,7 @@ main = do
       addGlobalSearchSpaceToRegistry graph
 
       let depth' = fromMaybe 0 depth
-      timeIOS $ evaluate =<< runParIO conf (safeSkeleton bigG depth')
+      timeIOS $ evaluate =<< runParIO conf (safeSkeleton bigG depth' discrepancySearch)
     SafeSkeletonDynamic -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
@@ -280,7 +285,7 @@ main = do
       addGlobalSearchSpaceToRegistry graph
 
       let depth' = fromMaybe 0 depth
-      timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitSetArray n depth')
+      timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitSetArray n depth' discrepancySearch)
 
   case res of
     Nothing -> exitSuccess

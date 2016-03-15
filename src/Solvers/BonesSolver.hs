@@ -190,9 +190,10 @@ broadcast g depth = do
 
   return (vs, length vs)
 
-safeSkeleton :: Graph -> Int -> Par Clique
-safeSkeleton g depth = do
+safeSkeleton :: Graph -> Int -> Bool -> Par Clique
+safeSkeleton g depth diversify = do
   vs <- Safe.search
+        diversify
         depth
         (toClosureListVertex ([] :: [Vertex]))
         (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
@@ -223,11 +224,12 @@ safeSkeletonDynamic g depth ntasks = do
 
   return (vs, length vs)
 
-safeSkeletonBitSetArray :: Int -> Int -> Par Clique
-safeSkeletonBitSetArray nVertices depth = do
+safeSkeletonBitSetArray :: Int -> Int -> Bool -> Par Clique
+safeSkeletonBitSetArray nVertices depth diversify = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
   vs <- Safe.search
+        diversify
         depth
         (toClosureListVertex ([] :: [Vertex]))
         (toClosureIBitSetArray (nVertices, initSet))
