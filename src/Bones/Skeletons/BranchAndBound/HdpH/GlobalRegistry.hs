@@ -15,6 +15,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
   , searchSpaceKey
   , solutionKey
+  , solutionSignalKey
   , boundKey
   ) where
 
@@ -63,6 +64,10 @@ searchSpaceKey = 0
 solutionKey :: Int
 {-# INLINE solutionKey #-}
 solutionKey = 1
+
+solutionSignalKey :: Int
+{-# INLINE solutionSignalKey #-}
+solutionSignalKey = 3
 
 boundKey :: Int
 {-# INLINE boundKey #-}
