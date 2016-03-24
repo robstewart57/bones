@@ -61,7 +61,7 @@ search depth startingSol space bnd fs' = do
       tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
               in  zipWith (createChildren depth' master) sr ts
 
-  children <- mapM (spawn one) (reverse tasks)
+  children <- mapM (spawn one) tasks
   mapM_ get children
 
   io $ unClosure . fst <$> readFromRegistry solutionKey
@@ -130,7 +130,7 @@ branchAndBoundExpand depth parent sol rem fs' = do
             let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) remaining cs
                         in  zipWith (createChildren (depth - 1) parent) sr cs
 
-            children <- mapM (spawn one) (reverse tasks)
+            children <- mapM (spawn one) tasks
             mapM_ get children
 
           createChildren sdepth m rem c =
