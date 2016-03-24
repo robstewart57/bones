@@ -43,7 +43,7 @@ import           GraphBitArray
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
-import           Solvers.BonesSolver (broadcast, safeSkeletonIntSet,
+import           Solvers.BonesSolver (randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
                                       safeSkeletonIntSetDynamic, safeSkeletonBitSetArray)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
@@ -88,7 +88,8 @@ timeIOS = timeIO diffTimeS
 --------------------------------------------------------------------------------
 data Algorithm = Sequential
                | SequentialBBMC
-               | ParallelBroadcast
+               | RandomWSIntSet
+               | RandomWSBitArray
                | SafeSkeletonIntSet
                | SafeSkeletonIntSetDynamic
                | SafeSkeletonBitArray
@@ -141,9 +142,10 @@ optionParser = Options
                ))
   where printAlgorithms = unlines ["[Sequential,"
                                   ," SequentialBBMC,"
-                                  ," ParallelBroadcast,"
-                                  ," SafeSkeletonIntSet"
-                                  ," SafeSkeletonIntSetDynamic"
+                                  ," RandomWSIntSet,"
+                                  ," RandomWSBitArray,"
+                                  ," SafeSkeletonIntSet,"
+                                  ," SafeSkeletonIntSetDynamic,"
                                   ," SafeSkeletonBitArray]"]
 
 optsParser = info (helper <*> optionParser)
@@ -243,14 +245,26 @@ main = do
         let (bigCstar', !call') = sequentialMaxCliqueBBMC n edges
         evaluate (rnf bigCstar')
         return $ (Just bigCstar')
-    ParallelBroadcast -> do
+    RandomWSIntSet -> do
       register (Main.declareStatic <> Broadcast.declareStatic)
 
       -- -- Make sure the graph is available globally
       graph <- newIORef bigG
       addGlobalSearchSpaceToRegistry graph
 
-      timeIOS $ evaluate =<< runParIO conf (broadcast bigG depth)
+      let depth' = fromMaybe 0 depth
+      timeIOS $ evaluate =<< runParIO conf (randomWSIntSet bigG depth')
+    RandomWSBitArray -> do
+      register (Main.declareStatic <> Broadcast.declareStatic)
+
+      g  <- mkGraphArray bigUG
+      gC <- mkGraphArray $ complementUG bigUG
+
+      graph <- newIORef (g, gC)
+      addGlobalSearchSpaceToRegistry graph
+
+      let depth' = fromMaybe 0 depth
+      timeIOS $ evaluate =<< runParIO conf (randomWSBitArray n depth')
     SafeSkeletonIntSet -> do
       register (Main.declareStatic <> Safe.declareStatic)
 

@@ -4,7 +4,8 @@
 {-# LANGUAGE TemplateHaskell   #-}
 
 module Solvers.BonesSolver (
-    broadcast
+    randomWSIntSet
+  , randomWSBitArray
   , safeSkeletonIntSet
   , safeSkeletonIntSetDynamic
   , safeSkeletonBitSetArray
@@ -174,8 +175,8 @@ removeFromBitSetArray c vs =
 -- Calling functions
 --------------------------------------------------------------------------------
 
-broadcast :: Graph -> Maybe Int -> Par Clique
-broadcast g depth = do
+randomWSIntSet :: Graph -> Int -> Par Clique
+randomWSIntSet g depth = do
   vs <- Broadcast.search
         depth
         (toClosureListVertex ([] :: [Vertex]))
@@ -189,6 +190,29 @@ broadcast g depth = do
           $(mkClosure [| removeFromSpace |])))
 
   return (vs, length vs)
+
+randomWSBitArray :: Int -> Int -> Par Clique
+randomWSBitArray nVertices depth = do
+  initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
+
+  vs <- Broadcast.search
+        depth
+        (toClosureListVertex ([] :: [Vertex]))
+        (toClosureIBitSetArray (nVertices, initSet))
+        (toClosureInt (0 :: Int))
+        (toClosure (BAndBFunctions
+          $(mkClosure [| generateChoicesBitSetArray |])
+          $(mkClosure [| shouldPrune |])
+          $(mkClosure [| shouldUpdateBound |])
+          $(mkClosure [| stepBitSetArray |])
+          $(mkClosure [| removeFromBitSetArray |])))
+
+  return (vs, length vs)
+
+  where setAll = do
+          s <- ArrayVertexSet.new nVertices
+          forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
+          return s
 
 safeSkeletonIntSet :: Graph -> Int -> Bool -> Par Clique
 safeSkeletonIntSet g depth diversify = do
