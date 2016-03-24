@@ -15,7 +15,6 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         staticToClosure, toClosure, unClosure)
 
 import           Control.Monad         (forM_, when)
-import           Data.Maybe            (fromMaybe)
 
 import           Data.IORef            (IORef, atomicModifyIORef')
 
@@ -35,7 +34,7 @@ instance ToClosure () where
 --- Skeleton Functionality
 --------------------------------------------------------------------------------
 
-search :: Maybe Int
+search :: Int
        -> Closure a
        -> Closure s
        -> Closure b
@@ -57,9 +56,8 @@ search depth startingSol space bnd fs' = do
   -- Generating the starting tasks remembering to remove choices from their left
   -- from the starting "remaining" set
 
-  let depth' = fromMaybe 0 depth
-      tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
-              in  zipWith (createChildren depth' master) sr ts
+  let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
+              in  zipWith (createChildren depth master) sr ts
 
   children <- mapM (spawn one) tasks
   mapM_ get children
