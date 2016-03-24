@@ -43,8 +43,13 @@ import           GraphBitArray
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
+<<<<<<< HEAD
 import           Solvers.BonesSolver (broadcast, safeSkeleton,
                                       safeSkeletonDynamic, safeSkeletonBitSetArray)
+=======
+import           Solvers.BonesSolver (broadcast, findSolution, safeSkeletonIntSet,
+                                      safeSkeletonIntSetDynamic, safeSkeletonBitSetArray)
+>>>>>>> e47a335... Renaming algorithms to avoid confusion
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
@@ -89,8 +94,14 @@ timeIOS = timeIO diffTimeS
 data Algorithm = Sequential
                | SequentialBBMC
                | ParallelBroadcast
+<<<<<<< HEAD
                | SafeSkeleton
                | SafeSkeletonDynamic
+=======
+               | FindSolution
+               | SafeSkeletonIntSet
+               | SafeSkeletonIntSetDynamic
+>>>>>>> e47a335... Renaming algorithms to avoid confusion
                | SafeSkeletonBitArray
               deriving (Read, Show)
 
@@ -142,8 +153,8 @@ optionParser = Options
   where printAlgorithms = unlines ["[Sequential,"
                                   ," SequentialBBMC,"
                                   ," ParallelBroadcast,"
-                                  ," SafeSkeleton"
-                                  ," SafeSkeletonDynamic"
+                                  ," SafeSkeletonIntSet"
+                                  ," SafeSkeletonIntSetDynamic"
                                   ," SafeSkeletonBitArray]"]
 
 optsParser = info (helper <*> optionParser)
@@ -251,7 +262,7 @@ main = do
       addGlobalSearchSpaceToRegistry graph
 
       timeIOS $ evaluate =<< runParIO conf (broadcast bigG depth)
-    SafeSkeleton -> do
+    SafeSkeletonIntSet -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
       -- -- Make sure the graph is available globally
@@ -259,8 +270,8 @@ main = do
       addGlobalSearchSpaceToRegistry graph
 
       let depth' = fromMaybe 0 depth
-      timeIOS $ evaluate =<< runParIO conf (safeSkeleton bigG depth' discrepancySearch)
-    SafeSkeletonDynamic -> do
+      timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSet bigG depth' discrepancySearch)
+    SafeSkeletonIntSetDynamic -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
       -- -- Make sure the graph is available globally
@@ -272,7 +283,7 @@ main = do
 
       if ntasks == 0
         then error "Must provide the NumDynamicTasks (-t) argument when using dynamic work generation"
-        else timeIOS $ evaluate =<< runParIO conf (safeSkeletonDynamic bigG depth' ntasks)
+        else timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSetDynamic bigG depth' ntasks)
     SafeSkeletonBitArray -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
