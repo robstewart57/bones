@@ -43,13 +43,8 @@ import           GraphBitArray
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
-<<<<<<< HEAD
-import           Solvers.BonesSolver (broadcast, safeSkeleton,
-                                      safeSkeletonDynamic, safeSkeletonBitSetArray)
-=======
-import           Solvers.BonesSolver (broadcast, findSolution, safeSkeletonIntSet,
+import           Solvers.BonesSolver (broadcast, safeSkeletonIntSet,
                                       safeSkeletonIntSetDynamic, safeSkeletonBitSetArray)
->>>>>>> e47a335... Renaming algorithms to avoid confusion
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
@@ -94,14 +89,8 @@ timeIOS = timeIO diffTimeS
 data Algorithm = Sequential
                | SequentialBBMC
                | ParallelBroadcast
-<<<<<<< HEAD
-               | SafeSkeleton
-               | SafeSkeletonDynamic
-=======
-               | FindSolution
                | SafeSkeletonIntSet
                | SafeSkeletonIntSetDynamic
->>>>>>> e47a335... Renaming algorithms to avoid confusion
                | SafeSkeletonBitArray
               deriving (Read, Show)
 
