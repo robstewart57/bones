@@ -5,8 +5,8 @@
 
 module Solvers.BonesSolver (
     broadcast
-  , safeSkeleton
-  , safeSkeletonDynamic
+  , safeSkeletonIntSet
+  , safeSkeletonIntSetDynamic
   , safeSkeletonBitSetArray
   , findSolution
   , declareStatic) where
@@ -207,8 +207,8 @@ broadcast g depth = do
 
   return (vs, length vs)
 
-safeSkeleton :: Graph -> Int -> Bool -> Par Clique
-safeSkeleton g depth diversify = do
+safeSkeletonIntSet :: Graph -> Int -> Bool -> Par Clique
+safeSkeletonIntSet g depth diversify = do
   vs <- Safe.search
         diversify
         depth
@@ -224,8 +224,8 @@ safeSkeleton g depth diversify = do
 
   return (vs, length vs)
 
-safeSkeletonDynamic :: Graph -> Int -> Int -> Par Clique
-safeSkeletonDynamic g depth ntasks = do
+safeSkeletonIntSetDynamic :: Graph -> Int -> Int -> Par Clique
+safeSkeletonIntSetDynamic g depth ntasks = do
   vs <- Safe.searchDynamic
         ntasks
         depth
