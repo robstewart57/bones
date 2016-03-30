@@ -1,14 +1,23 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Main where
 
-import Options.Applicative
+import Options.Applicative hiding (many)
 
 import Control.Parallel.HdpH hiding (declareStatic)
 import qualified Control.Parallel.HdpH as HdpH (declareStatic)
 
+import Control.Monad (void)
+
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+
+import Data.List (sortBy)
+
 import System.Clock
 import System.Environment (getArgs)
 import System.IO (hSetBuffering, stdout, stderr, BufferMode(..))
+
+import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces, digit, newline)
 
 -- Simple program to solve Knapsack instances using the bones skeleton library.
 
@@ -82,6 +91,52 @@ timeIOS :: IO a -> IO (a, Double)
 timeIOS = timeIO diffTimeS
 
 --------------------------------------------------------------------------------
+-- Parsing Knapsack files
+--------------------------------------------------------------------------------
+
+readProblem :: FilePath -> IO (Integer, [(Integer, Integer)])
+readProblem f = do
+  lines <- readFile f
+  case parse parseKnapsack f lines of
+    Left err -> error $ "Could not parse file " ++ f ++ "." ++ show err
+    Right v  -> return v
+
+parseKnapsack :: GenParser Char s (Integer, [(Integer,Integer)])
+parseKnapsack = do
+  cap   <- parseCapacity
+  items <- many parseItem
+  return (cap, items)
+  where
+    parseCapacity = do
+      c <- pint
+      newline
+      return c
+
+    parseItem = do
+      p <- pint
+      spaces
+      w <- pint
+      eof <|> void newline
+      return (p,w)
+
+    pint = do
+      d <- many1 digit
+      return (read d :: Integer)
+
+--------------------------------------------------------------------------------
+-- Knapsack Functionality
+--------------------------------------------------------------------------------
+
+orderItems :: [(Integer, Integer)] -> ([(Integer, Integer)], IntMap Int)
+orderItems its = let labeled = zip [1 .. length its] its
+                     ordered = sortBy (flip compareDensity) labeled
+                     pairs   = zip [1 .. length its] (map fst ordered)
+                     permMap = foldl (\m (x,y) -> IntMap.insert y x m) IntMap.empty pairs
+                 in (map snd ordered, permMap)
+  where
+    compareDensity (_, (p1,w1)) (_, (p2,w2)) =
+      compare (fromIntegral p1 / fromIntegral w1) (fromIntegral p2 / fromIntegral w2)
+--------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
 
@@ -103,4 +158,11 @@ main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
 
+  (cap, items) <- readProblem filename
+
+  -- Items should always be sorted by value density
+  -- permMap let's us revert the ordering
+  let (items', permMap) = orderItems items
+
   register Main.declareStatic
+
