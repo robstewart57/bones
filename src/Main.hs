@@ -6,10 +6,13 @@ import Options.Applicative hiding (many)
 import Control.Parallel.HdpH hiding (declareStatic)
 import qualified Control.Parallel.HdpH as HdpH (declareStatic)
 
+import Control.Exception        (evaluate)
 import Control.Monad (void)
 
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
+
+import Data.IORef (newIORef)
 
 import Data.List (sortBy)
 
@@ -18,6 +21,11 @@ import System.Environment (getArgs)
 import System.IO (hSetBuffering, stdout, stderr, BufferMode(..))
 
 import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces, digit, newline)
+
+import Knapsack (safeSkeleton, Solution)
+import qualified Knapsack as Knapsack (declareStatic)
+
+import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 -- Simple program to solve Knapsack instances using the bones skeleton library.
 
@@ -136,6 +144,7 @@ orderItems its = let labeled = zip [1 .. length its] its
   where
     compareDensity (_, (p1,w1)) (_, (p2,w2)) =
       compare (fromIntegral p1 / fromIntegral w1) (fromIntegral p2 / fromIntegral w2)
+
 --------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
@@ -146,6 +155,7 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     HdpH.declareStatic
+  , Knapsack.declareStatic
   ]
 
 main :: IO ()
@@ -160,9 +170,20 @@ main = do
 
   (cap, items) <- readProblem filename
 
-  -- Items should always be sorted by value density
-  -- permMap let's us revert the ordering
-  let (items', permMap) = orderItems items
+  -- Items should always be sorted by value density. For now we assume this is the case on the input file
+  -- let (items', permMap) = orderItems items
 
   register Main.declareStatic
 
+  iref <- newIORef items
+  addGlobalSearchSpaceToRegistry iref
+
+  (s, time) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items 0 True)
+  case s of
+    Nothing -> return ()
+    Just (sol, profit, weight) -> do
+      -- let sol' = unPermItems sol permMap
+      putStrLn $ "Optimal Profit: " ++ show profit
+      putStrLn $ "Optimal Weight: " ++ show weight
+      putStrLn $ "Solution: " ++ show sol
+      putStrLn $ "computeTime: " ++ show time ++ " ms"
