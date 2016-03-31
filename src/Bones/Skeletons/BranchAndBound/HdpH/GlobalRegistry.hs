@@ -13,9 +13,13 @@ module Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
   , initRegistryBound
 
+  , getUserState
+  , putUserState
+
   , searchSpaceKey
   , solutionKey
   , boundKey
+  , userStateKey
   ) where
 
 import           Control.Parallel.HdpH (Closure, Thunk(..), Par, io)
@@ -52,6 +56,13 @@ addToRegistry :: Int -> a -> IO ()
 addToRegistry k v = newIORef v >>= addRefToRegistry k
 
 
+-- Functions a user can use to manipulate state
+getUserState :: IO a
+getUserState = readFromRegistry userStateKey
+
+putUserState :: a -> IO ()
+putUserState = addToRegistry userStateKey
+
 --------------------------------------------------------------------------------
 -- Skeleton Interface
 --------------------------------------------------------------------------------
@@ -67,6 +78,10 @@ solutionKey = 1
 boundKey :: Int
 {-# INLINE boundKey #-}
 boundKey = 2
+
+userStateKey :: Int
+{-# INLINE userStateKey #-}
+userStateKey = 3
 
 initRegistryBound :: Closure a -> Thunk (Par ())
 initRegistryBound bnd = Thunk $ io (addToRegistry boundKey bnd)
