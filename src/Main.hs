@@ -12,7 +12,6 @@ import Control.Monad (void)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 
-import Data.IORef (newIORef)
 
 import Data.List (sortBy)
 
@@ -23,7 +22,7 @@ import System.IO (hSetBuffering, stdout, stderr, BufferMode(..))
 import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces, digit, newline)
 
 import Knapsack (safeSkeleton, Solution)
-import qualified Knapsack as Knapsack (declareStatic)
+import qualified Knapsack (declareStatic)
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
@@ -175,10 +174,7 @@ main = do
 
   register Main.declareStatic
 
-  iref <- newIORef items
-  addGlobalSearchSpaceToRegistry iref
-
-  (s, time) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items 0 True)
+  (s, tm) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items cap 0 True)
   case s of
     Nothing -> return ()
     Just (sol, profit, weight) -> do
@@ -186,4 +182,4 @@ main = do
       putStrLn $ "Optimal Profit: " ++ show profit
       putStrLn $ "Optimal Weight: " ++ show weight
       putStrLn $ "Solution: " ++ show sol
-      putStrLn $ "computeTime: " ++ show time ++ " ms"
+      putStrLn $ "computeTime: " ++ show tm ++ " ms"

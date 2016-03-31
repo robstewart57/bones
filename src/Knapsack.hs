@@ -10,15 +10,23 @@ module Knapsack
 
 import Control.Parallel.HdpH hiding (declareStatic)
 
-import           Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions))
+import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions))
+import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry
+                                                          , putUserState
+                                                          , getUserState)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
+
+import Data.IORef (newIORef)
 
 -- (sol, profit, weight)
 type Solution = ([Item], Integer, Integer)
 type Item = (Integer, Integer)
 
-safeSkeleton :: [(Integer, Integer)] -> Int -> Bool -> Par Solution
-safeSkeleton items depth diversify =
+safeSkeleton :: [(Integer, Integer)] -> Integer -> Int -> Bool -> Par Solution
+safeSkeleton items capacity depth diversify = do
+  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+  io $ putUserState capacity
+
   Safe.search
     diversify
     depth
@@ -49,8 +57,12 @@ generateChoices cur remaining = return $ map toClosureItem (unClosure remaining)
 
 -- Calculate the bounds function
 -- TODO: This also needs the future variables as an argument
-shouldPrune :: Closure Item -> Closure Solution -> Closure Integer -> Bool
-shouldPrune i s bnd = False
+shouldPrune :: Closure Item
+            ->  Closure Integer
+            -> Closure Solution
+            -> Closure [Item]
+            -> Par Bool
+shouldPrune i bnd sol rem = return False
 
 shouldUpdateBound :: Closure Integer -> Closure Integer -> Bool
 shouldUpdateBound x y = unClosure x > unClosure y
@@ -59,10 +71,11 @@ step :: Closure Item -> Closure Solution -> Closure [Item]
      -> Par (Closure Solution, Closure Integer, Closure [Item])
 step i s rem = let i'@(np, nw)   = unClosure i
                    (is, p, w)    = unClosure s
-               in return (toClosureSolution (i':is, p + np, w + nw), toClosureInteger (p + np), rem)
+               in
+               return (toClosureSolution (i':is, p + np, w + nw), toClosureInteger (p + np), rem)
 
-removeChoice :: Closure Item -> Closure [Item] -> Closure [Item]
-removeChoice i its = toClosureItemList $ filter (\x -> x /= unClosure i) (unClosure its)
+removeChoice :: Closure Item -> Closure [Item] -> Par (Closure [Item])
+removeChoice i its = return $ toClosureItemList $ filter (\x -> x /= unClosure i) (unClosure its)
 
 --------------------------------------------------------------------------------
 -- Closure Instances
