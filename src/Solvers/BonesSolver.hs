@@ -66,24 +66,37 @@ instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray))
 --------------------------------------------------------------------------------
 generateChoices  :: Closure [Vertex]
                  -> Closure VertexSet
-                 -> Par ([Closure (Vertex, Int)])
+                 -> Par [Closure (Vertex, Int)]
 generateChoices cur remaining = do
   g <- io $ readFromRegistry searchSpaceKey
   let vs = unClosure remaining
   if VertexSet.null vs
     then return []
     else return $ map toClosureColourOrder $ colourOrder g vs
-  
 
 shouldPrune :: Closure (Vertex, Int)
-            -> Closure [Vertex]
             -> Closure Int
-            -> Bool
-shouldPrune col sol bnd =
+            -> Closure [Vertex]
+            -> Closure VertexSet
+            -> Par Bool
+shouldPrune col bnd sol _ =
   let (v,c) = unClosure col
       b     = unClosure bnd
       sol'  = unClosure sol
-  in (length sol') + c <= b
+  in
+  return $ length sol' + c <= b
+
+shouldPruneBitSetArray :: Closure (Vertex, Int)
+                       -> Closure Int
+                       -> Closure [Vertex]
+                       -> Closure (Int, IBitSetArray)
+                       -> Par Bool
+shouldPruneBitSetArray col bnd sol _ =
+  let (v,c) = unClosure col
+      b     = unClosure bnd
+      sol'  = unClosure sol
+  in
+  return $ length sol' + c <= b
 
 shouldUpdateBound :: Closure Int -> Closure Int -> Bool
 shouldUpdateBound new old =
@@ -101,7 +114,7 @@ step c sol vs = do
   let (v,col) = unClosure c
       sol'    = unClosure sol
       vs'     = unClosure vs
-      newSol  = (v:sol')
+      newSol  = v:sol'
       newRemaining = VertexSet.intersection vs' $ adjacentG searchSpace v
 
   return ( toClosureListVertex newSol
@@ -111,11 +124,12 @@ step c sol vs = do
 
 removeFromSpace :: Closure (Vertex,Int)
                 -> Closure VertexSet
-                -> Closure VertexSet
+                -> Par (Closure VertexSet)
 removeFromSpace c vs =
   let (v, col) = unClosure c
       vs'      = unClosure vs
-  in (toClosureVertexSet $ VertexSet.delete v vs')
+  in
+  return (toClosureVertexSet $ VertexSet.delete v vs')
 
 generateChoicesBitSetArray :: Closure [Vertex]
                         -> Closure (Int,IBitSetArray)
@@ -124,7 +138,7 @@ generateChoicesBitSetArray cur remaining = do
   (_, gC) <- io $ readFromRegistry searchSpaceKey
 
   let (s, vs) = unClosure remaining
-  
+
   if s == 0
     then return []
     else do
@@ -142,7 +156,8 @@ stepBitSetArray c sol vs = do
   let (v,col) = unClosure c
       sol'    = unClosure sol
       (s, vs')= unClosure vs
-      newSol  = (v:sol')
+      newSol  = v:sol'
+
   vs'' <- io $ ArrayVertexSet.fromImmutable vs'
   (newVs, pc)  <- io $ intersectAdjacency vs'' g v -- Might not need copies now that removeChoice copies everything
   newRemaining <- io $ ArrayVertexSet.makeImmutable newVs
@@ -156,20 +171,18 @@ stepBitSetArray c sol vs = do
 -- Just change the skeleton for now?
 removeFromBitSetArray :: Closure (Vertex,Int)
                    -> Closure (Int, IBitSetArray)
-                   -> Closure (Int, IBitSetArray)
-removeFromBitSetArray c vs =
+                   -> Par (Closure (Int, IBitSetArray))
+removeFromBitSetArray c vs = do
   let (v, col) = unClosure c
       (s,vs')      = unClosure vs
 
-      -- TODO: This probably wont work too well. Need to change the skeleton to allow Par effects (this makes sense anyway)
-      -- This needs to be immutable for generating top level tasks.
-      newA = unsafePerformIO $ do
-              mv <- ArrayVertexSet.fromImmutable vs'
-              vc <- ArrayVertexSet.copy mv
-              ArrayVertexSet.remove v vc
-              ArrayVertexSet.makeImmutable vc
+  -- This needs to be immutable for generating top level tasks.
+  mv <- io $ ArrayVertexSet.fromImmutable vs'
+  vc <- io $ ArrayVertexSet.copy mv
+  io $ ArrayVertexSet.remove v vc
+  newA <- io $ ArrayVertexSet.makeImmutable vc
 
-  in (toClosureIBitSetArray (s-1, newA))
+  return (toClosureIBitSetArray (s-1, newA))
 
 --------------------------------------------------------------------------------
 -- Calling functions
@@ -202,7 +215,7 @@ randomWSBitArray nVertices depth = do
         (toClosureInt (0 :: Int))
         (toClosure (BAndBFunctions
           $(mkClosure [| generateChoicesBitSetArray |])
-          $(mkClosure [| shouldPrune |])
+          $(mkClosure [| shouldPruneBitSetArray |])
           $(mkClosure [| shouldUpdateBound |])
           $(mkClosure [| stepBitSetArray |])
           $(mkClosure [| removeFromBitSetArray |])))
@@ -260,7 +273,7 @@ safeSkeletonBitSetArray nVertices depth diversify = do
         (toClosureInt (0 :: Int))
         (toClosure (BAndBFunctions
           $(mkClosure [| generateChoicesBitSetArray |])
-          $(mkClosure [| shouldPrune |])
+          $(mkClosure [| shouldPruneBitSetArray |])
           $(mkClosure [| shouldUpdateBound |])
           $(mkClosure [| stepBitSetArray |])
           $(mkClosure [| removeFromBitSetArray |])))
@@ -324,6 +337,7 @@ declareStatic = mconcat
   , declare $(static 'removeFromSpace)
 
   , declare $(static 'generateChoicesBitSetArray)
+  , declare $(static 'shouldPruneBitSetArray)
   , declare $(static 'stepBitSetArray)
   , declare $(static 'removeFromBitSetArray)
 
