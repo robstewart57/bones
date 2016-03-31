@@ -157,7 +157,7 @@ spawnAtDepth ts master maxDepth curDepth fs =
         bnd <- io $ readFromRegistry boundKey
 
         -- Check if we can prune first to avoid any extra work
-        if (unClosure $ shouldPrune fs') c sol bnd
+        if (unClosure $ shouldPrune fs') c bnd sol remaining
           then return Nothing
           else do
             (sol', _, remaining') <- (unClosure $ step fs') c sol remaining
@@ -218,7 +218,7 @@ safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs) = do
     -- Check if we can prune first to avoid any extra work
     let fs' = unClosure fs
 
-    if (unClosure $ shouldPrune fs') c sol bnd
+    if (unClosure $ shouldPrune fs') c bnd sol remaining
       then return $ toClosure ()
       else do
        (startingSol, _, remaining') <- (unClosure $ step fs') c sol remaining
@@ -240,7 +240,7 @@ safeBranchAndBoundSkeletonExpand parent sol remaining fs = do
       go sol remaining (c:cs) fs' = do
         bnd <- io $ readFromRegistry boundKey
 
-        if (unClosure $ shouldPrune fs') c sol bnd
+        if (unClosure $ shouldPrune fs') c bnd sol remaining
           then
             return ()
           else do
@@ -451,7 +451,7 @@ spawnAtDepthLazy ts master curDepth fs
 
         -- Check if we can prune first to avoid extra work
         let fs' = unClosure fs
-        if (unClosure $ shouldPrune fs') c s bnd
+        if (unClosure $ shouldPrune fs') c bnd s r
           then return Nothing
           else do
           l <- new

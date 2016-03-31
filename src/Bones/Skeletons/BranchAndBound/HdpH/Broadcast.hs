@@ -85,7 +85,7 @@ branchAndBoundChild (spawnDepth, n, c, sol, rem, fs') =
     let fs = unClosure fs'
 
     bnd <- io $ readFromRegistry boundKey
-    if (unClosure $ shouldPrune fs) c sol bnd then
+    if (unClosure $ shouldPrune fs) c bnd sol rem then
         return $ toClosure ()
     else do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
@@ -109,7 +109,7 @@ branchAndBoundExpand depth parent sol rem fs' = do
           go 0 sol remaining (c:cs) fs  = do
             bnd <- io $ readFromRegistry boundKey
 
-            if (unClosure $ shouldPrune fs) c sol bnd then
+            if (unClosure $ shouldPrune fs) c bnd sol rem then
               return ()
             else do
               (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining

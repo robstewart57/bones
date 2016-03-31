@@ -13,7 +13,7 @@ import           GHC.Generics          (Generic)
 data BAndBFunctions a b c s =
   BAndBFunctions
     { generateChoices :: Closure (Closure a -> Closure s -> Par [Closure c])
-    , shouldPrune     :: Closure (Closure c -> Closure a -> Closure b -> Bool)
+    , shouldPrune     :: Closure (Closure c -> Closure b -> Closure a -> Closure s -> Bool)
     , updateBound     :: Closure (Closure b -> Closure b -> Bool)
     , step            :: Closure (Closure c -> Closure a -> Closure s
                           -> Par (Closure a, Closure b, Closure s))
