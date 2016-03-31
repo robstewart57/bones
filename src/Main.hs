@@ -115,11 +115,13 @@ parseKnapsack = do
   return (cap, items)
   where
     parseCapacity = do
+      spaces
       c <- pint
       newline
       return c
 
     parseItem = do
+      spaces
       p <- pint
       spaces
       w <- pint
