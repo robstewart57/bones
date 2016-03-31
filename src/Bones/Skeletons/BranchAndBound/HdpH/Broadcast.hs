@@ -22,6 +22,7 @@ import           Data.Monoid           (mconcat)
 
 import           Bones.Skeletons.BranchAndBound.HdpH.Types
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
+import           Bones.Skeletons.BranchAndBound.HdpH.Util
 
 --------------------------------------------------------------------------------
 --- Data Types
@@ -56,8 +57,8 @@ search depth startingSol space bnd fs' = do
   -- Generating the starting tasks remembering to remove choices from their left
   -- from the starting "remaining" set
 
-  let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
-              in  zipWith (createChildren depth master) sr ts
+  sr <- scanM (flip (unClosure (removeChoice fs))) space ts
+  let tasks = zipWith (createChildren depth master) sr ts
 
   children <- mapM (spawn one) tasks
   mapM_ get children
@@ -85,7 +86,8 @@ branchAndBoundChild (spawnDepth, n, c, sol, rem, fs') =
     let fs = unClosure fs'
 
     bnd <- io $ readFromRegistry boundKey
-    if (unClosure $ shouldPrune fs) c bnd sol rem then
+    sp <- unClosure (shouldPrune fs) c bnd sol rem
+    if sp then
         return $ toClosure ()
     else do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
@@ -109,7 +111,8 @@ branchAndBoundExpand depth parent sol rem fs' = do
           go 0 sol remaining (c:cs) fs  = do
             bnd <- io $ readFromRegistry boundKey
 
-            if (unClosure $ shouldPrune fs) c bnd sol rem then
+            sp <- unClosure (shouldPrune fs) c bnd sol rem
+            if sp then
               return ()
             else do
               (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining
@@ -120,13 +123,14 @@ branchAndBoundExpand depth parent sol rem fs' = do
 
               branchAndBoundExpand depth parent newSol remaining' fs'
 
-              let remaining'' = (unClosure $ removeChoice fs) c remaining
+              remaining'' <- unClosure (removeChoice fs) c remaining
               go 0 sol remaining'' cs fs
 
            -- Spawn New Tasks
           go depth sol remaining cs fs = do
-            let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) remaining cs
-                        in  zipWith (createChildren (depth - 1) parent) sr cs
+
+            sr <- scanM (flip (unClosure (removeChoice fs))) remaining cs
+            let tasks = zipWith (createChildren (depth - 1) parent) sr cs
 
             children <- mapM (spawn one) tasks
             mapM_ get children

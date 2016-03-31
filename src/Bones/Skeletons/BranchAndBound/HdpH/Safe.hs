@@ -30,6 +30,7 @@ import           Data.Ord  (comparing)
 
 import           Bones.Skeletons.BranchAndBound.HdpH.Types
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
+import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
 
 --------------------------------------------------------------------------------
 --- Data Types
@@ -69,8 +70,9 @@ search diversify spawnDepth startingSol space bnd fs = do
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
 
       spawnAndExecuteTasks choices fs' master  = do
-        let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) space choices
-            topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
+
+        spaces <- scanM (flip (unClosure (removeChoice fs'))) space choices
+        let topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
             ones = 1 : ones
             tlc = zip (0 : ones) topLevelChoices
 
@@ -124,7 +126,7 @@ spawnAtDepth ts master maxDepth curDepth fs =
           g <- glob taken
 
           resMaster <- new
-          resG <- glob resMaster 
+          resG <- glob resMaster
 
           let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
                                                                          , c
@@ -157,7 +159,8 @@ spawnAtDepth ts master maxDepth curDepth fs =
         bnd <- io $ readFromRegistry boundKey
 
         -- Check if we can prune first to avoid any extra work
-        if (unClosure $ shouldPrune fs') c bnd sol remaining
+        sp <- unClosure (shouldPrune fs') c bnd sol remaining
+        if sp
           then return Nothing
           else do
             (sol', _, remaining') <- (unClosure $ step fs') c sol remaining
@@ -167,7 +170,7 @@ spawnAtDepth ts master maxDepth curDepth fs =
            let fs' = unClosure fs
            cs <- (unClosure $ generateChoices fs') sol remaining
 
-           let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) remaining cs
+           spaces <- scanM (flip (unClosure (removeChoice fs'))) remaining cs
 
            -- Best to update the priorities here
            return $ zipWith (\i c -> (p + i,c)) (0 : inf ((maxDepth + 2) - curDepth)) (zip3 cs (replicate (length spaces) sol) spaces)
@@ -218,7 +221,8 @@ safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs) = do
     -- Check if we can prune first to avoid any extra work
     let fs' = unClosure fs
 
-    if (unClosure $ shouldPrune fs') c bnd sol remaining
+    sp <- unClosure (shouldPrune fs') c bnd sol remaining
+    if sp
       then return $ toClosure ()
       else do
        (startingSol, _, remaining') <- (unClosure $ step fs') c sol remaining
@@ -240,20 +244,20 @@ safeBranchAndBoundSkeletonExpand parent sol remaining fs = do
       go sol remaining (c:cs) fs' = do
         bnd <- io $ readFromRegistry boundKey
 
-        if (unClosure $ shouldPrune fs') c bnd sol remaining
+        sp <- unClosure (shouldPrune fs') c bnd sol remaining
+        if sp
           then
             return ()
           else do
             (newSol, newBnd, remaining') <- (unClosure $ step fs') c sol remaining
 
-            let shouldUpdate = (unClosure $ updateBound fs') newBnd bnd
-            when shouldUpdate $ do
+            when (unClosure (updateBound fs') newBnd bnd) $ do
                 bAndb_parUpdateLocalBounds newBnd fs
                 bAndb_notifyParentOfNewBest parent (newSol, newBnd) fs
 
             safeBranchAndBoundSkeletonExpand parent newSol remaining' fs
 
-            let remaining'' = (unClosure $ removeChoice fs') c remaining
+            remaining'' <- unClosure (removeChoice fs') c remaining
             go sol remaining'' cs fs'
 
 bAndb_parUpdateLocalBounds :: Closure b
@@ -330,8 +334,8 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
 
       spawnAndExecuteTasks choices fs' master  = do
 
-        let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) space choices
-            topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
+        spaces <- scanM (flip (unClosure (removeChoice fs'))) space choices
+        let topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
 
         -- Channels may block the scheduler, issue with scheds=1
         taskQueue <- io newTChanIO
@@ -442,7 +446,7 @@ spawnAtDepthLazy ts master curDepth fs
            let fs' = unClosure fs
            cs <- (unClosure $ generateChoices fs') sol remaining
 
-           let spaces = tail $ scanl (flip (unClosure $ removeChoice fs')) remaining cs
+           spaces <- scanM (flip (unClosure (removeChoice fs'))) remaining cs
 
            return $ zip3 cs (replicate (length spaces) sol) spaces
 
@@ -451,7 +455,8 @@ spawnAtDepthLazy ts master curDepth fs
 
         -- Check if we can prune first to avoid extra work
         let fs' = unClosure fs
-        if (unClosure $ shouldPrune fs') c bnd s r
+        sp <- unClosure (shouldPrune fs') c bnd s r
+        if sp
           then return Nothing
           else do
           l <- new

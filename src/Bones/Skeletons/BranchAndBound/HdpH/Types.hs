@@ -13,11 +13,11 @@ import           GHC.Generics          (Generic)
 data BAndBFunctions a b c s =
   BAndBFunctions
     { generateChoices :: Closure (Closure a -> Closure s -> Par [Closure c])
-    , shouldPrune     :: Closure (Closure c -> Closure b -> Closure a -> Closure s -> Bool)
+    , shouldPrune     :: Closure (Closure c -> Closure b -> Closure a -> Closure s -> Par Bool)
     , updateBound     :: Closure (Closure b -> Closure b -> Bool)
     , step            :: Closure (Closure c -> Closure a -> Closure s
                           -> Par (Closure a, Closure b, Closure s))
-    , removeChoice    :: Closure (Closure c -> Closure s-> Closure s)
+    , removeChoice    :: Closure (Closure c -> Closure s-> Par (Closure s))
     } deriving (Generic)
 
 instance NFData (BAndBFunctions a b c s)
