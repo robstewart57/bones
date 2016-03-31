@@ -53,29 +53,47 @@ safeSkeleton items capacity depth diversify = do
 
 -- Potential choices is simply the list of un-chosen items
 generateChoices :: Closure Solution -> Closure [Item] -> Par [Closure Item]
-generateChoices cur remaining = return $ map toClosureItem (unClosure remaining)
+generateChoices _ remaining = return $ map toClosureItem (unClosure remaining)
 
 -- Calculate the bounds function
--- TODO: This also needs the future variables as an argument
 shouldPrune :: Closure Item
-            ->  Closure Integer
+            -> Closure Integer
             -> Closure Solution
             -> Closure [Item]
             -> Par Bool
-shouldPrune i bnd sol rem = return False
+shouldPrune i' bnd' sol' rem' = do
+  let (ip, iw)   = unClosure i'
+      (_, p, w)  = unClosure sol'
+      bnd        = unClosure bnd'
+      r          = unClosure rem'
+
+  cap <- io getUserState
+  if w + iw > cap || fromIntegral bnd > ub (p + ip) (w + iw) bnd r
+    then return True
+    else return False
+
+  where
+    ub p _ _ [] = p
+    ub p w c ((ip, iw):is)
+      | c - (w + iw) >= 0 = ub (p + ip) (w + iw) c is
+      | otherwise = p + (c - w) * ( ip `div` iw) -- It's okay to floor the division.
 
 shouldUpdateBound :: Closure Integer -> Closure Integer -> Bool
 shouldUpdateBound x y = unClosure x > unClosure y
 
 step :: Closure Item -> Closure Solution -> Closure [Item]
      -> Par (Closure Solution, Closure Integer, Closure [Item])
-step i s rem = let i'@(np, nw)   = unClosure i
-                   (is, p, w)    = unClosure s
-               in
-               return (toClosureSolution (i':is, p + np, w + nw), toClosureInteger (p + np), rem)
+step i s r = do
+  let i'@(np, nw)   = unClosure i
+      (is, p, w)    = unClosure s
+
+  rm <- removeChoice i r
+
+  return (toClosureSolution (i':is, p + np, w + nw), toClosureInteger (p + np), rm)
 
 removeChoice :: Closure Item -> Closure [Item] -> Par (Closure [Item])
-removeChoice i its = return $ toClosureItemList $ filter (\x -> x /= unClosure i) (unClosure its)
+removeChoice i its = let is = filter (\x -> x /= unClosure i) (unClosure its)
+                     in return $ toClosureItemList is
 
 --------------------------------------------------------------------------------
 -- Closure Instances

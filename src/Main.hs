@@ -170,16 +170,16 @@ main = do
   (cap, items) <- readProblem filename
 
   -- Items should always be sorted by value density. For now we assume this is the case on the input file
-  -- let (items', permMap) = orderItems items
+  let (items', permMap) = orderItems items
 
   register Main.declareStatic
 
-  (s, tm) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items cap 0 True)
+  (s, tm) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items' cap 0 True)
   case s of
     Nothing -> return ()
     Just (sol, profit, weight) -> do
       -- let sol' = unPermItems sol permMap
       putStrLn $ "Optimal Profit: " ++ show profit
       putStrLn $ "Optimal Weight: " ++ show weight
-      putStrLn $ "Solution: " ++ show sol
+      putStrLn $ "Solution: " ++ show  (fst $ orderItems sol)
       putStrLn $ "computeTime: " ++ show tm ++ " ms"
