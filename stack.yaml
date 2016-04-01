@@ -19,7 +19,7 @@ packages:
     commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
 - location:
     git: git@github.com:BlairArchibald/bones.git
-    commit: bd4979e2f8cf1e737f8c4269590d9eb00e172c1c
+    commit: 56fcef9c16bfad180e3244e4dd6e0d33554e2561
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []

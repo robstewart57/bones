@@ -10,7 +10,7 @@ module Knapsack
 
 import Control.Parallel.HdpH hiding (declareStatic)
 
-import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions))
+import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions), PruneType(..))
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry
                                                           , putUserState
                                                           , getUserState)
@@ -60,7 +60,7 @@ shouldPrune :: Closure Item
             -> Closure Integer
             -> Closure Solution
             -> Closure [Item]
-            -> Par Bool
+            -> Par PruneType
 shouldPrune i' bnd' sol' rem' = do
   let (ip, iw)   = unClosure i'
       (_, p, w)  = unClosure sol'
@@ -68,7 +68,10 @@ shouldPrune i' bnd' sol' rem' = do
       r          = unClosure rem'
 
   cap <- io getUserState
-  return $ w + iw > cap || fromIntegral bnd > ub (p + ip) (w + iw) cap r
+  if w + iw > cap || fromIntegral bnd > ub (p + ip) (w + iw) cap r then
+    return Prune
+  else
+    return NoPrune
 
   where
     ub :: Integer -> Integer -> Integer -> [(Integer,Integer)] -> Integer
