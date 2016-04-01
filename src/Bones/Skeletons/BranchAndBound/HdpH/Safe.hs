@@ -160,11 +160,11 @@ spawnAtDepth ts master maxDepth curDepth fs =
 
         -- Check if we can prune first to avoid any extra work
         sp <- unClosure (shouldPrune fs') c bnd sol remaining
-        if sp
-          then return Nothing
-          else do
+        case sp of
+          NoPrune -> do
             (sol', _, remaining') <- (unClosure $ step fs') c sol remaining
             return $ Just (p, (sol', remaining'))
+          _       -> return Nothing
 
        constructChoices (p, (sol, remaining)) = do
            let fs' = unClosure fs
@@ -222,11 +222,11 @@ safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs) = do
     let fs' = unClosure fs
 
     sp <- unClosure (shouldPrune fs') c bnd sol remaining
-    if sp
-      then return $ toClosure ()
-      else do
+    case sp of
+      NoPrune -> do
        (startingSol, _, remaining') <- (unClosure $ step fs') c sol remaining
        toClosure <$> safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs
+      _       -> return $ toClosure ()
 
 safeBranchAndBoundSkeletonExpand ::
        Node
@@ -245,10 +245,14 @@ safeBranchAndBoundSkeletonExpand parent sol remaining fs = do
         bnd <- io $ readFromRegistry boundKey
 
         sp <- unClosure (shouldPrune fs') c bnd sol remaining
-        if sp
-          then
-            return ()
-          else do
+        case sp of
+          Prune      -> do
+            remaining'' <- unClosure (removeChoice fs') c remaining
+            go sol remaining'' cs fs'
+
+          PruneLevel -> return ()
+
+          NoPrune    -> do
             (newSol, newBnd, remaining') <- (unClosure $ step fs') c sol remaining
 
             when (unClosure (updateBound fs') newBnd bnd) $ do
@@ -456,17 +460,18 @@ spawnAtDepthLazy ts master curDepth fs
         -- Check if we can prune first to avoid extra work
         let fs' = unClosure fs
         sp <- unClosure (shouldPrune fs') c bnd s r
-        if sp
-          then return Nothing
-          else do
-          l <- new
-          g <- glob l
+        case sp of
+          NoPrune -> do
+            l <- new
+            g <- glob l
 
-          let task  =
-                $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g , c , master
-                                                                   , s , r , fs) |])
+            let task  =
+                  $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g , c , master
+                                                                    , s , r , fs) |])
 
-          return $ Just (l, task, c, s, r)
+            return $ Just (l, task, c, s, r)
+
+          _       -> return Nothing
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl

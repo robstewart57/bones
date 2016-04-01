@@ -13,7 +13,7 @@ import           GHC.Generics          (Generic)
 data BAndBFunctions a b c s =
   BAndBFunctions
     { generateChoices :: Closure (Closure a -> Closure s -> Par [Closure c])
-    , shouldPrune     :: Closure (Closure c -> Closure b -> Closure a -> Closure s -> Par Bool)
+    , shouldPrune     :: Closure (Closure c -> Closure b -> Closure a -> Closure s -> Par PruneType)
     , updateBound     :: Closure (Closure b -> Closure b -> Bool)
     , step            :: Closure (Closure c -> Closure a -> Closure s
                           -> Par (Closure a, Closure b, Closure s))
@@ -22,3 +22,5 @@ data BAndBFunctions a b c s =
 
 instance NFData (BAndBFunctions a b c s)
 instance Serialize (BAndBFunctions a b c s)
+
+data PruneType = NoPrune | Prune | PruneLevel

@@ -87,11 +87,11 @@ branchAndBoundChild (spawnDepth, n, c, sol, rem, fs') =
 
     bnd <- io $ readFromRegistry boundKey
     sp <- unClosure (shouldPrune fs) c bnd sol rem
-    if sp then
-        return $ toClosure ()
-    else do
+    case sp of
+      NoPrune -> do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
         toClosure <$> branchAndBoundExpand spawnDepth n startingSol rem' fs'
+      _       -> return $ toClosure ()
 
 branchAndBoundExpand ::
        Int
@@ -112,19 +112,24 @@ branchAndBoundExpand depth parent sol rem fs' = do
             bnd <- io $ readFromRegistry boundKey
 
             sp <- unClosure (shouldPrune fs) c bnd sol rem
-            if sp then
-              return ()
-            else do
-              (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining
+            case sp of
+              NoPrune -> do
+                (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining
 
-              when ((unClosure $ updateBound fs) newBnd bnd) $ do
-                 bAndb_parUpdateLocalBounds newBnd fs'
-                 bAndb_notifyParentOfNewBest parent (newSol, newBnd) fs'
+                when ((unClosure $ updateBound fs) newBnd bnd) $ do
+                  bAndb_parUpdateLocalBounds newBnd fs'
+                  bAndb_notifyParentOfNewBest parent (newSol, newBnd) fs'
 
-              branchAndBoundExpand depth parent newSol remaining' fs'
+                branchAndBoundExpand depth parent newSol remaining' fs'
 
-              remaining'' <- unClosure (removeChoice fs) c remaining
-              go 0 sol remaining'' cs fs
+                remaining'' <- unClosure (removeChoice fs) c remaining
+                go 0 sol remaining'' cs fs
+
+              Prune -> do
+                remaining'' <- unClosure (removeChoice fs) c remaining
+                go 0 sol remaining'' cs fs
+
+              PruneLevel -> return ()
 
            -- Spawn New Tasks
           go depth sol remaining cs fs = do
