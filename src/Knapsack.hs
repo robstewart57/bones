@@ -68,15 +68,18 @@ shouldPrune i' bnd' sol' rem' = do
       r          = unClosure rem'
 
   cap <- io getUserState
-  if w + iw > cap || fromIntegral bnd > ub (p + ip) (w + iw) bnd r
-    then return True
-    else return False
+  return $ w + iw > cap || fromIntegral bnd > ub (p + ip) (w + iw) cap r
 
   where
+    ub :: Integer -> Integer -> Integer -> [(Integer,Integer)] -> Integer
     ub p _ _ [] = p
     ub p w c ((ip, iw):is)
       | c - (w + iw) >= 0 = ub (p + ip) (w + iw) c is
-      | otherwise = p + (c - w) * ( ip `div` iw) -- It's okay to floor the division.
+      | otherwise = p + floor (fromIntegral (c - w) * divf ip iw)
+
+    divf :: Integer -> Integer -> Float
+    divf a b = fromIntegral a / fromIntegral b
+
 
 shouldUpdateBound :: Closure Integer -> Closure Integer -> Bool
 shouldUpdateBound x y = unClosure x > unClosure y
