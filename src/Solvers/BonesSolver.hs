@@ -41,7 +41,8 @@ import           System.IO.Unsafe      (unsafePerformIO)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe      as Safe
-import           Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions))
+import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
+                                                           , PruneType(..))
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
@@ -78,25 +79,31 @@ shouldPrune :: Closure (Vertex, Int)
             -> Closure Int
             -> Closure [Vertex]
             -> Closure VertexSet
-            -> Par Bool
+            -> Par PruneType
 shouldPrune col bnd sol _ =
   let (v,c) = unClosure col
       b     = unClosure bnd
       sol'  = unClosure sol
   in
-  return $ length sol' + c <= b
+  if length sol' + c <= b then
+    return PruneLevel
+  else
+    return NoPrune
 
 shouldPruneBitSetArray :: Closure (Vertex, Int)
                        -> Closure Int
                        -> Closure [Vertex]
                        -> Closure (Int, IBitSetArray)
-                       -> Par Bool
+                       -> Par PruneType
 shouldPruneBitSetArray col bnd sol _ =
   let (v,c) = unClosure col
       b     = unClosure bnd
       sol'  = unClosure sol
   in
-  return $ length sol' + c <= b
+  if length sol' + c <= b then
+    return PruneLevel
+  else
+    return NoPrune
 
 shouldUpdateBound :: Closure Int -> Closure Int -> Bool
 shouldUpdateBound new old =
