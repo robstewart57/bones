@@ -212,8 +212,8 @@ findSolution depth startingSol space bnd fs' = do
   -- from the starting "remaining" set
 
 
-  let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) space ts
-              in  zipWith (createChildren depth master) sr ts
+  sr <- scanM (flip (unClosure (removeChoice fs))) space ts
+  let tasks = zipWith (createChildren depth master) sr ts
 
   children <- mapM (spawn one) tasks
 
@@ -249,11 +249,12 @@ branchAndBoundFindChild (spawnDepth, n, c, sol, rem, fs') =
     let fs = unClosure fs'
 
     bnd <- io $ readFromRegistry boundKey
-    if (unClosure $ shouldPrune fs) c sol bnd then
-        return $ toClosure ()
-    else do
+    sp <- unClosure (shouldPrune fs) c bnd sol rem
+    case sp of
+      NoPrune -> do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
         toClosure <$> branchAndBoundFindExpand spawnDepth n startingSol rem' fs'
+      _ -> return $ toClosure ()
 
 branchAndBoundFindExpand ::
        Int
@@ -273,23 +274,29 @@ branchAndBoundFindExpand depth parent sol rem fs' = do
           go 0 sol remaining (c:cs) fs  = do
             bnd <- io $ readFromRegistry boundKey
 
-            if (unClosure $ shouldPrune fs) c sol bnd then
-              return ()
-            else do
-              (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining
+            sp <- unClosure (shouldPrune fs) c bnd sol rem
+            case sp of
+              NoPrune -> do
+                (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining
 
-              when ((unClosure $ updateBound fs) newBnd bnd) $ do
-                 bAndbFind_notifyParentOfNewBest parent (newSol, newBnd) fs'
+                when ((unClosure $ updateBound fs) newBnd bnd) $ do
+                  bAndbFind_notifyParentOfNewBest parent (newSol, newBnd) fs'
 
-              branchAndBoundFindExpand depth parent newSol remaining' fs'
+                branchAndBoundFindExpand depth parent newSol remaining' fs'
 
-              let remaining'' = (unClosure $ removeChoice fs) c remaining
-              go 0 sol remaining'' cs fs
+                remaining'' <- unClosure (removeChoice fs) c remaining
+                go 0 sol remaining'' cs fs
+
+              Prune -> do
+                remaining'' <- unClosure (removeChoice fs) c remaining
+                go 0 sol remaining'' cs fs
+
+              PruneLevel -> return ()
 
            -- Spawn New Tasks
           go depth sol remaining cs fs = do
-            let tasks = let sr = tail $ scanl (flip (unClosure $ removeChoice fs)) remaining cs
-                        in  zipWith (createChildren (depth - 1) parent) sr cs
+            sr <- scanM (flip (unClosure (removeChoice fs))) remaining cs
+            let tasks = zipWith (createChildren (depth - 1) parent) sr cs
 
             children <- mapM (spawn one) tasks
             mapM_ get children
