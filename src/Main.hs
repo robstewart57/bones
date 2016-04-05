@@ -13,7 +13,8 @@ import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 
 
-import Data.List (sortBy)
+import Data.List  (sortBy)
+import Data.Maybe (fromMaybe)
 
 import System.Clock
 import System.Environment (getArgs)
@@ -34,7 +35,8 @@ import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 data Options = Options
   {
-    inputFile :: FilePath
+    inputFile  :: FilePath
+  , spawnDepth :: Maybe Int
   }
 
 optionParser :: Parser Options
@@ -44,6 +46,11 @@ optionParser = Options
                 <> short 'f'
                 <> help "Knapsack input file to use"
                 )
+          <*> optional (option auto
+                (   long "spawnDepth"
+                <>  short 'd'
+                <>  help "Spawn depth cutoff threshold"
+                ))
 
 optsParser = info (helper <*> optionParser)
              (  fullDesc
@@ -164,7 +171,7 @@ main = do
   args <- getArgs
   (conf, args') <- parseHdpHOpts args
 
-  Options filename <- handleParseResult $ execParserPure defaultPrefs optsParser args'
+  Options filename depth <- handleParseResult $ execParserPure defaultPrefs optsParser args'
 
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
@@ -176,7 +183,8 @@ main = do
 
   register Main.declareStatic
 
-  (s, tm) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items' cap 0 True)
+  let depth' = fromMaybe 0 depth
+  (s, tm) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items' cap depth' True)
   case s of
     Nothing -> return ()
     Just (sol, profit, weight) -> do
