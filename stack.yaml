@@ -12,7 +12,7 @@ packages:
     commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
 - location:
     git: git@github.com:BlairArchibald/bones.git
-    commit: 56fcef9c16bfad180e3244e4dd6e0d33554e2561
+    commit: 627191a67993125783a5288e3f0e2750fc644735
 - location:
     git: git@github.com:BlairArchibald/bitSetArray.git
     commit: 7382e2b9314c952d35e3196b85acd62ded7768fc

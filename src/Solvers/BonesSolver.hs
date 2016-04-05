@@ -9,6 +9,7 @@ module Solvers.BonesSolver (
   , safeSkeletonIntSet
   , safeSkeletonIntSetDynamic
   , safeSkeletonBitSetArray
+  , findSolution
   , declareStatic) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
@@ -110,6 +111,27 @@ shouldUpdateBound new old =
   let new' = unClosure new
       old' = unClosure old
   in new' > old'
+
+shouldPruneF :: Closure (Vertex, Int)
+            -> Closure Int
+            -> Closure [Vertex]
+            -> Closure (Int, IBitSetArray)
+            -> Par PruneType
+shouldPruneF col bnd sol _ =
+  let (v,c) = unClosure col
+      b     = unClosure bnd
+      sol'  = unClosure sol
+  in
+  if length sol' + c < b then
+    return PruneLevel
+  else
+    return NoPrune
+
+isTarget :: Closure Int -> Closure Int -> Bool
+isTarget new old =
+  let new' = unClosure new
+      old' = unClosure old
+  in new' == old'
 
 step :: Closure (Vertex, Int)
      -> Closure [Vertex]
@@ -292,6 +314,29 @@ safeSkeletonBitSetArray nVertices depth diversify = do
           forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
           return s
 
+findSolution :: Int -> Int -> Int -> Par Clique
+findSolution nVertices depth targetSize = do
+  initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
+
+  vs <- Broadcast.findSolution
+        depth
+        (toClosureListVertex ([] :: [Vertex]))
+        (toClosureIBitSetArray (nVertices, initSet))
+        (toClosureInt targetSize)
+        (toClosure (BAndBFunctions
+          $(mkClosure [| generateChoicesBitSetArray |])
+          $(mkClosure [| shouldPruneF |])
+          $(mkClosure [| isTarget |])
+          $(mkClosure [| stepBitSetArray |])
+          $(mkClosure [| removeFromBitSetArray |])))
+
+  return (vs, length vs)
+
+  where setAll = do
+          s <- ArrayVertexSet.new nVertices
+          forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
+          return s
+
 --------------------------------------------------------------------------------
 -- Explicit ToClousre Instances (needed for performance)
 --------------------------------------------------------------------------------
@@ -347,6 +392,10 @@ declareStatic = mconcat
   , declare $(static 'shouldPruneBitSetArray)
   , declare $(static 'stepBitSetArray)
   , declare $(static 'removeFromBitSetArray)
+
+  -- Find Solution
+  , declare $(static 'shouldPruneF)
+  , declare $(static 'isTarget)
 
   -- Explicit toClosure
   , declare $(static 'toClosureInt_abs)

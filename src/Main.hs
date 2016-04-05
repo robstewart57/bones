@@ -43,7 +43,7 @@ import           GraphBitArray
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
-import           Solvers.BonesSolver (randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
+import           Solvers.BonesSolver (findSolution, randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
                                       safeSkeletonIntSetDynamic, safeSkeletonBitSetArray)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
@@ -90,6 +90,7 @@ data Algorithm = Sequential
                | SequentialBBMC
                | RandomWSIntSet
                | RandomWSBitArray
+               | FindSolution
                | SafeSkeletonIntSet
                | SafeSkeletonIntSetDynamic
                | SafeSkeletonBitArray
@@ -101,6 +102,7 @@ data Options = Options
   , noPerm      :: Bool
   , verbose     :: Bool
   , discrepancy :: Bool
+  , targetSize  :: Maybe Int
   , spawnDepth  :: Maybe Int
   , numTasks    :: Maybe Int
   }
@@ -130,6 +132,11 @@ optionParser = Options
                (  long "discrepancySearch"
                <> help "Use discrepancy search in parallel."
                )
+           <*> optional (option auto
+               (  long "targetSize"
+               <> short 's'
+               <> help "Clique size to search for (use with FindSolution skeleton)"
+               ))
            <*> optional (option auto
                (  long "spawnDepth"
                <> short 'd'
@@ -198,7 +205,8 @@ main = do
 
   (Options
    algorithm filename noPerm
-   verbose discrepancySearch depth numTasks) <- handleParseResult $ execParserPure defaultPrefs optsParser args'
+   verbose discrepancySearch solSize
+   depth numTasks) <- handleParseResult $ execParserPure defaultPrefs optsParser args'
 
   let permute = not noPerm
 
@@ -300,6 +308,22 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitSetArray n depth' discrepancySearch)
+    FindSolution -> do
+      solSize' <- case solSize of
+                     Nothing -> error "You must provide the target size (-s) argument\
+                                      \when using the FindSolution algorithm"
+                     Just s -> return s
+
+      register (Main.declareStatic <> Broadcast.declareStatic)
+
+      g  <- mkGraphArray bigUG
+      gC <- mkGraphArray $ complementUG bigUG
+
+      graph <- newIORef (g, gC)
+      addGlobalSearchSpaceToRegistry graph
+
+      let depth'  = fromMaybe 0 depth
+      timeIOS $ evaluate =<< runParIO conf (findSolution n depth' solSize')
 
   case res of
     Nothing -> exitSuccess
