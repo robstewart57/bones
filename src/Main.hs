@@ -108,24 +108,25 @@ timeIOS = timeIO diffTimeS
 -- Parsing Knapsack files
 --------------------------------------------------------------------------------
 
-readProblem :: FilePath -> IO (Integer, [(Integer, Integer)])
+readProblem :: FilePath -> IO (Integer, Integer, [(Integer, Integer)])
 readProblem f = do
   lines <- readFile f
   case parse parseKnapsack f lines of
     Left err -> error $ "Could not parse file " ++ f ++ "." ++ show err
     Right v  -> return v
 
-parseKnapsack :: GenParser Char s (Integer, [(Integer,Integer)])
+parseKnapsack :: GenParser Char s (Integer, Integer, [(Integer,Integer)])
 parseKnapsack = do
-  cap   <- parseCapacity
+  cap   <- parseSingleInt
+  ans   <- parseSingleInt
   items <- many parseItem
-  return (cap, items)
+  return (cap, ans, items)
   where
-    parseCapacity = do
+    parseSingleInt = do
       spaces
-      c <- pint
+      i <- pint
       newline
-      return c
+      return i
 
     parseItem = do
       spaces
@@ -176,7 +177,7 @@ main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
 
-  (cap, items) <- readProblem filename
+  (cap, ans, items) <- readProblem filename
 
   -- Items should always be sorted by value density. For now we assume this is the case on the input file
   let (items', permMap) = orderItems items
@@ -191,5 +192,10 @@ main = do
       -- let sol' = unPermItems sol permMap
       putStrLn $ "Optimal Profit: " ++ show profit
       putStrLn $ "Optimal Weight: " ++ show weight
+
+      if profit == ans
+        then putStrLn "Expected Result? True"
+        else putStrLn "Expected Result? False"
+
       putStrLn $ "Solution: " ++ show  (fst $ orderItems sol)
       putStrLn $ "computeTime: " ++ show tm ++ " ms"
