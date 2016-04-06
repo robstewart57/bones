@@ -51,8 +51,7 @@ search diversify spawnDepth startingSol space bnd fs = do
   allNodes >>= initRegistries
 
   -- Get top level choices
-  searchSpace <- io $ readFromRegistry searchSpaceKey
-  cs <- (unClosure $ generateChoices fs') searchSpace space
+  cs <- (unClosure $ generateChoices fs') startingSol space
 
   -- Sequentially execute tasks up to depth d.
   myNode >>= spawnAndExecuteTasks cs fs'

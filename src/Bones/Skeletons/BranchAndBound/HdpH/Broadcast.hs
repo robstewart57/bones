@@ -41,12 +41,10 @@ search depth startingSol space bnd fs' = do
 
   initLocalRegistries ns
 
-  searchSpace <- io $ readFromRegistry searchSpaceKey
-
   let fs = unClosure fs'
 
   -- Gen at top level
-  ts   <- (unClosure $ generateChoices fs) searchSpace space
+  ts   <- (unClosure $ generateChoices fs) startingSol space
 
   -- Generating the starting tasks remembering to remove choices from their left
   -- from the starting "remaining" set
@@ -195,16 +193,13 @@ findSolution depth startingSol space bnd fs' = do
 
   initLocalRegistries ns found
 
-  searchSpace <- io $ readFromRegistry searchSpaceKey
-
   let fs = unClosure fs'
 
   -- Gen at top level
-  ts   <- (unClosure $ generateChoices fs) searchSpace space
+  ts   <- (unClosure $ generateChoices fs) startingSol space
 
   -- Generating the starting tasks remembering to remove choices from their left
   -- from the starting "remaining" set
-
 
   sr <- scanM (flip (unClosure (removeChoice fs))) space ts
   let tasks = zipWith (createChildren depth master) sr ts
