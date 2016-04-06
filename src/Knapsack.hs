@@ -5,7 +5,6 @@ module Knapsack
 (
     safeSkeleton
   , declareStatic
-  , Solution
 ) where
 
 import Control.Parallel.HdpH hiding (declareStatic)
@@ -18,11 +17,9 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 
 import Data.IORef (newIORef)
 
--- (sol, profit, weight)
-type Solution = ([Item], Integer, Integer)
-type Item = (Integer, Integer)
+import Types
 
-safeSkeleton :: [(Integer, Integer)] -> Integer -> Int -> Bool -> Par Solution
+safeSkeleton :: [Item] -> Integer -> Int -> Bool -> Par Solution
 safeSkeleton items capacity depth diversify = do
   io $ newIORef items >>= addGlobalSearchSpaceToRegistry
   io $ putUserState capacity
@@ -62,10 +59,10 @@ shouldPrune :: Closure Item
             -> Closure [Item]
             -> Par PruneType
 shouldPrune i' bnd' sol' rem' = do
-  let (ip, iw)   = unClosure i'
-      (_, p, w)  = unClosure sol'
-      bnd        = unClosure bnd'
-      r          = unClosure rem'
+  let (_, ip, iw) = unClosure i'
+      (_, p, w)   = unClosure sol'
+      bnd         = unClosure bnd'
+      r           = unClosure rem'
 
   cap <- io getUserState
   if w + iw > cap || fromIntegral bnd > ub (p + ip) (w + iw) cap r then
@@ -74,9 +71,9 @@ shouldPrune i' bnd' sol' rem' = do
     return NoPrune
 
   where
-    ub :: Integer -> Integer -> Integer -> [(Integer,Integer)] -> Integer
+    ub :: Integer -> Integer -> Integer -> [Item] -> Integer
     ub p _ _ [] = p
-    ub p w c ((ip, iw):is)
+    ub p w c ((_, ip, iw):is)
       | c - (w + iw) >= 0 = ub (p + ip) (w + iw) c is
       | otherwise = p + floor (fromIntegral (c - w) * divf ip iw)
 
@@ -90,16 +87,19 @@ shouldUpdateBound x y = unClosure x > unClosure y
 step :: Closure Item -> Closure Solution -> Closure [Item]
      -> Par (Closure Solution, Closure Integer, Closure [Item])
 step i s r = do
-  let i'@(np, nw)   = unClosure i
-      (is, p, w)    = unClosure s
+  let i'@(_, np, nw)   = unClosure i
+      (is, p, w)       = unClosure s
 
   rm <- removeChoice i r
 
   return (toClosureSolution (i':is, p + np, w + nw), toClosureInteger (p + np), rm)
 
 removeChoice :: Closure Item -> Closure [Item] -> Par (Closure [Item])
-removeChoice i its = let is = filter (\x -> x /= unClosure i) (unClosure its)
-                     in return $ toClosureItemList is
+removeChoice i its =
+  let (v, _, _) = unClosure i
+      its' = unClosure its
+      is = filter (\(n, _, _) -> v /= n) its'
+  in return $ toClosureItemList is
 
 --------------------------------------------------------------------------------
 -- Closure Instances

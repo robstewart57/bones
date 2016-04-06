@@ -22,8 +22,10 @@ import System.IO (hSetBuffering, stdout, stderr, BufferMode(..))
 
 import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces, digit, newline)
 
-import Knapsack (safeSkeleton, Solution)
+import Knapsack (safeSkeleton)
 import qualified Knapsack (declareStatic)
+
+import Types
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
@@ -144,15 +146,17 @@ parseKnapsack = do
 -- Knapsack Functionality
 --------------------------------------------------------------------------------
 
-orderItems :: [(Integer, Integer)] -> ([(Integer, Integer)], IntMap Int)
+orderItems :: [(Integer, Integer)] -> ([Item], IntMap Int)
 orderItems its = let labeled = zip [1 .. length its] its
                      ordered = sortBy (flip compareDensity) labeled
                      pairs   = zip [1 .. length its] (map fst ordered)
                      permMap = foldl (\m (x,y) -> IntMap.insert y x m) IntMap.empty pairs
-                 in (map snd ordered, permMap)
+                 in (map compress (zip [1 .. length ordered] (map snd ordered)), permMap)
   where
     compareDensity (_, (p1,w1)) (_, (p2,w2)) =
       compare (fromIntegral p1 / fromIntegral w1) (fromIntegral p2 / fromIntegral w2)
+
+    compress (a, (b,c)) = (a, b, c)
 
 --------------------------------------------------------------------------------
 -- Main
@@ -197,5 +201,5 @@ main = do
         then putStrLn "Expected Result? True"
         else putStrLn "Expected Result? False"
 
-      putStrLn $ "Solution: " ++ show  (fst $ orderItems sol)
+      putStrLn $ "Solution: " ++ show  (map (\(_,b,c) -> (b,c)) sol)
       putStrLn $ "computeTime: " ++ show tm ++ " ms"
