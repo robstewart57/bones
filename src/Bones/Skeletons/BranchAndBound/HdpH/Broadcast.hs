@@ -20,16 +20,10 @@ import           Data.IORef            (IORef, atomicModifyIORef')
 
 import           Data.Monoid           (mconcat)
 
-import           Bones.Skeletons.BranchAndBound.HdpH.Types
+import           Bones.Skeletons.BranchAndBound.HdpH.Types hiding (declareStatic)
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Types as Types
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import           Bones.Skeletons.BranchAndBound.HdpH.Util
-
---------------------------------------------------------------------------------
---- Data Types
---------------------------------------------------------------------------------
-
-instance ToClosure () where
-  locToClosure = $(here)
 
 --------------------------------------------------------------------------------
 --- Skeleton Functionality
@@ -344,5 +338,5 @@ declareStatic = mconcat
   -- Decision Problem Skeleton
   , declare $(static 'branchAndBoundFindChild)
   , declare $(static 'bAndbFind_updateParentBest)
-  , declare (staticToClosure :: StaticToClosure ())
+  , Types.declareStatic
   ]

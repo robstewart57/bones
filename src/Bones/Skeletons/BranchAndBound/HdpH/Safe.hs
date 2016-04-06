@@ -28,15 +28,10 @@ import           Data.Monoid           (mconcat)
 
 import           Data.Ord  (comparing)
 
-import           Bones.Skeletons.BranchAndBound.HdpH.Types
+import           Bones.Skeletons.BranchAndBound.HdpH.Types hiding (declareStatic)
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Types as Types
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
-
---------------------------------------------------------------------------------
---- Data Types
---------------------------------------------------------------------------------
-
-instance ToClosure () where locToClosure = $(here)
 
 --------------------------------------------------------------------------------
 --- Skeleton Functionality
@@ -482,5 +477,5 @@ declareStatic = mconcat
   , declare $(static 'bAndb_updateLocalBounds)
   , declare $(static 'safeBranchAndBoundSkeletonChildTask)
   , declare $(static 'runAndFill)
-  , declare (staticToClosure :: StaticToClosure ())
+  , Types.declareStatic
   ]
