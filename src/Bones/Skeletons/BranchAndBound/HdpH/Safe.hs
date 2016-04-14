@@ -91,7 +91,6 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
 runAndFill :: (Closure (Par (Closure a)), GIVar (Closure a)) -> Thunk (Par ())
 runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 
--- Probably really want [Par a] not Par [a]. How can I get this?
 spawnTillDepth ::
               Node
            -> Int
@@ -99,27 +98,26 @@ spawnTillDepth ::
            -> Closure s
            -> Closure (BAndBFunctions a b c s)
            -> Par [(Int,(IVar (Closure ()), IVar (Closure ()), GIVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
-spawnTillDepth master depth ssol sspace fs = go depth ssol sspace
+spawnTillDepth master depth ssol sspace fs = go depth 1 0 ssol sspace
   where
-    go d sol space
+    go d i parentP sol space
          | d == 0 = do
              let fns = unClosure fs
              cs <- unClosure (generateChoices fns) sol space
              spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
 
-             -- TODO: Fix Priorities
-             zipWithM (\c s -> createTask (0, (c, sol, s))) cs spaces
+             zipWithM3 (\p c s -> createTask (parentP + p, (c, sol, s))) (0 : inf i) cs spaces
          | otherwise = do
              let fns = unClosure fs
              cs     <- unClosure (generateChoices fns) sol space
              spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
 
-             let ts = zip cs spaces
-             tasks  <- mapM (\(c,s) -> createTask (0, (c, sol, s))) ts
+             let ts = zip3 (0 : inf i) cs spaces
+             tasks  <- mapM (\(p, c,s) -> createTask (p, (c, sol, s))) ts
 
-             xs <- forM (zip ts tasks) $ \((c,s), t) -> do
+             xs <- forM (zip ts tasks) $ \((p,c,s), t) -> do
                     (sol', _, space') <- unClosure (step fns) c sol s
-                    ts' <- go (d - 1) sol' space'
+                    ts' <- go (d - 1) (i * 2) p sol' space'
                     return (t : ts')
 
              return (concat xs)
@@ -127,7 +125,6 @@ spawnTillDepth master depth ssol sspace fs = go depth ssol sspace
     createTask (p, (c,s,r)) = do
        taken <- new
        g <- glob taken
-
        resMaster <- new
        resG <- glob resMaster
 
@@ -140,6 +137,8 @@ spawnTillDepth master depth ssol sspace fs = go depth ssol sspace
                                                                       ) |])
 
        return (p, (taken, resMaster, resG, task, c, s, r))
+
+    zipWithM3 f xs ys zs = sequence (zipWith3 f xs ys zs)
 
     inf x = x : inf x
 
