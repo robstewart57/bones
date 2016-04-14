@@ -45,16 +45,13 @@ search :: Bool
        -> Closure b
        -> Closure (BAndBFunctions a b c s)
        -> Par a
-search diversify spawnDepth startingSol space bnd fs = do
+search diversify spawnDepth startingSol startingSpace bnd fs = do
   let fs' = unClosure fs
 
   allNodes >>= initRegistries
 
-  -- Get top level choices
-  cs <- (unClosure $ generateChoices fs') startingSol space
-
   -- Sequentially execute tasks up to depth d.
-  myNode >>= spawnAndExecuteTasks cs fs'
+  myNode >>= spawnAndExecuteTasks
 
   -- Return the result stored in the global bound as the answer
   io $ unClosure . fst <$> readFromRegistry solutionKey
@@ -63,14 +60,8 @@ search diversify spawnDepth startingSol space bnd fs = do
         io $ addToRegistry solutionKey (startingSol, bnd)
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
 
-      spawnAndExecuteTasks choices fs' master  = do
-
-        spaces <- scanM (flip (unClosure (removeChoice fs'))) space choices
-        let topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
-            ones = 1 : ones
-            tlc = zip (0 : ones) topLevelChoices
-
-        tlist  <- spawnAtDepth tlc master spawnDepth spawnDepth fs
+      spawnAndExecuteTasks master = do
+        tlist  <- spawnTillDepth master spawnDepth startingSol startingSpace fs
 
         if diversify then
         -- TODO: we possible want to sort the output so that we spawn high priority tasks first, this way
@@ -101,63 +92,56 @@ runAndFill :: (Closure (Par (Closure a)), GIVar (Closure a)) -> Thunk (Par ())
 runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 
 -- Probably really want [Par a] not Par [a]. How can I get this?
-spawnAtDepth ::
-              [(Int, (Closure c, Closure a, Closure s))]
-           -> Node
+spawnTillDepth ::
+              Node
            -> Int
-           -> Int
+           -> Closure a
+           -> Closure s
            -> Closure (BAndBFunctions a b c s)
            -> Par [(Int,(IVar (Closure ()), IVar (Closure ()), GIVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
-spawnAtDepth ts master maxDepth curDepth fs =
-  -- This seems to be getting forced early. I want to keep this lazy if possible!
-  if curDepth == 0
-    then
-        forM ts $ \(p, (c,s,r)) -> do
-          taken <- new
-          g <- glob taken
-
-          resMaster <- new
-          resG <- glob resMaster
-
-          let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
-                                                                         , c
-                                                                         , master
-                                                                         , s
-                                                                         , r
-                                                                         , fs
-                                                                         ) |])
-
-          return (p, (taken, resMaster, resG, task, c, s, r))
-    else do
-      -- Apply step function to each task and continue spawning tasks
-      -- We are given a "level" [(choice, sol, rem) | (choice', sol', rem')]
-      -- We want to recursively get ourselves the next level.
-      -- step     <- catMaybes <$> mapM stepSol ts
-      let fns = unClosure fs
-
-      steps <- mapM (\(p, (c, sol, space)) -> do
-                        (sol', _, space') <- unClosure (step fns) c sol space
-                        return (p, (sol', space')) ts
-
-      -- Then we generate choices form this step
-      newLevel <- mapM constructChoices step
-
-      -- This might be forcing the list. I don't want this - how do I fix it? No idea yet.
-
-      -- and recurse
-      concat <$> mapM (\ts' -> spawnAtDepth ts' master maxDepth (curDepth - 1) fs) newLevel
-
+spawnTillDepth master depth ssol sspace fs = go depth ssol sspace
   where
-       constructChoices (p, (sol, remaining)) = do
-           let fs' = unClosure fs
-           cs <- (unClosure $ generateChoices fs') sol remaining
+    go d sol space
+         | d == 0 = do
+             let fns = unClosure fs
+             cs <- unClosure (generateChoices fns) sol space
+             spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
 
-           spaces <- scanM (flip (unClosure (removeChoice fs'))) remaining cs
+             -- TODO: Fix Priorities
+             zipWithM (\c s -> createTask (0, (c, sol, s))) cs spaces
+         | otherwise = do
+             let fns = unClosure fs
+             cs     <- unClosure (generateChoices fns) sol space
+             spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
 
-           -- Best to update the priorities here
-           return $ zipWith (\i c -> (p + i,c)) (0 : inf ((maxDepth + 2) - curDepth)) (zip3 cs (replicate (length spaces) sol) spaces)
+             let ts = zip cs spaces
+             tasks  <- mapM (\(c,s) -> createTask (0, (c, sol, s))) ts
 
-       inf x = x : inf x
+             xs <- forM (zip ts tasks) $ \((c,s), t) -> do
+                    (sol', _, space') <- unClosure (step fns) c sol s
+                    ts' <- go (d - 1) sol' space'
+                    return (t : ts')
+
+             return (concat xs)
+
+    createTask (p, (c,s,r)) = do
+       taken <- new
+       g <- glob taken
+
+       resMaster <- new
+       resG <- glob resMaster
+
+       let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
+                                                                      , c
+                                                                      , master
+                                                                      , s
+                                                                      , r
+                                                                      , fs
+                                                                      ) |])
+
+       return (p, (taken, resMaster, resG, task, c, s, r))
+
+    inf x = x : inf x
 
 spinGet :: IVar a -> Par a
 spinGet v = do
