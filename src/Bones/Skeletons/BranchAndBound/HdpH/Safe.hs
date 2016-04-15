@@ -67,7 +67,10 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
         -- TODO: we possible want to sort the output so that we spawn high priority tasks first, this way
         -- the work stealing doesn't steal the low priority tasks before the
         -- high priorities
-          mapM_ spawnTasksWithPrios tlist
+
+        -- Tasks are spawned in reverse since the priority queue places newer
+        -- tasks before older (we want the opposite effect)
+          mapM_ spawnTasksWithPrios (reverse tlist)
         else
           foldM_ spawnTasksLinear 0 tlist
 
@@ -118,7 +121,11 @@ spawnTillDepth master depth ssol sspace fs = go depth 1 0 ssol sspace
              xs <- forM (zip ts tasks) $ \((p,c,s), t) -> do
                     (sol', _, space') <- unClosure (step fns) c sol s
                     ts' <- go (d - 1) (i * 2) p sol' space'
-                    return (t : ts')
+                    -- Don't bother storing the "left" subtask since the parent
+                    -- task will do this first.
+                    case ts' of
+                      [] -> return [t]
+                      _  -> return (t : tail ts')
 
              return (concat xs)
 
