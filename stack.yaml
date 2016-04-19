@@ -3,7 +3,7 @@ packages:
 - '.'
 - location:
     git: git@github.com:BlairArchibald/HdpH.git
-    commit: 1ff5954385a5190553e3e4070cab5cce714867dc
+    commit: 51a43bd39dbbc9e3de182997752946b4f93e3550
   subdirs:
   - hdph
   - hdph-closure
@@ -12,13 +12,13 @@ packages:
     commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
 - location:
     git: git@github.com:BlairArchibald/bones.git
-    commit: 627191a67993125783a5288e3f0e2750fc644735
+    commit: 0a2253fe29cc100f57624885aed9561cf2bbedd3
 - location:
     git: git@github.com:BlairArchibald/bitSetArray.git
-    commit: 7382e2b9314c952d35e3196b85acd62ded7768fc
+    commit: 26d7dd146e7e18a843e89d986ad91814329a346b
 - location:
     git: http://code.mathr.co.uk/bitwise.git
     commit: 158ec3c370c2008d6a7b525346b07c57827a202b
 
 extra-deps: []
-resolver: lts-3.9
+resolver: lts-5.12
