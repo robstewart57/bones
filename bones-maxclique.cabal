@@ -22,6 +22,7 @@ executable bones-maxclique
                      , GraphBitSet
                      , Clique
                      , Solvers.SequentialSolver
+                     , Solvers.SequentialSolverBitSetArray
                      , Solvers.SequentialSolverBBMC
                      , Solvers.BonesSolver
   ghc-options:         -threaded -rtsopts -O2 -funbox-strict-fields

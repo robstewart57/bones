@@ -42,6 +42,7 @@ import           Graph
 import           GraphBitArray
 
 import           Solvers.SequentialSolver (sequentialMaxClique)
+import           Solvers.SequentialSolverBitSetArray (sequentialBitSetArrayMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
 import           Solvers.BonesSolver (findSolution, randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
                                       safeSkeletonIntSetDynamic, safeSkeletonBitSetArray)
@@ -88,6 +89,7 @@ timeIOS = timeIO diffTimeS
 --------------------------------------------------------------------------------
 data Algorithm = Sequential
                | SequentialBBMC
+               | SequentialBitSetArray
                | RandomWSIntSet
                | RandomWSBitArray
                | FindSolution
@@ -148,6 +150,7 @@ optionParser = Options
                <> help "Number of Tasks to attempt to keep in the Dynamic WorkQueue"
                ))
   where printAlgorithms = unlines ["[Sequential,"
+                                  ," SequentialBitSetArray,"
                                   ," SequentialBBMC,"
                                   ," RandomWSIntSet,"
                                   ," RandomWSBitArray,"
@@ -168,7 +171,6 @@ defaultPrefs = ParserPrefs
     , prefShowHelpOnError = False
     , prefBacktrack = True
     , prefColumns = 80 }
-
 
 --------------------------------------------------------------------------------
 -- HdpH
@@ -249,6 +251,13 @@ main = do
         let (bigCstar', !calls') = sequentialMaxClique bigG
         evaluate (rnf bigCstar')
         return $ Just bigCstar'
+    SequentialBitSetArray -> timeIOS $ do
+        g  <- mkGraphArray bigUG
+        gC <- mkGraphArray $ complementUG bigUG
+
+        sol <- sequentialBitSetArrayMaxClique (g, gC) n
+
+        return $ Just sol
     SequentialBBMC -> timeIOS $ do
         let (bigCstar', !call') = sequentialMaxCliqueBBMC n edges
         evaluate (rnf bigCstar')
