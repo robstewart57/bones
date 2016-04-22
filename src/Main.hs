@@ -179,7 +179,7 @@ main = do
   register Main.declareStatic
 
   let depth' = fromMaybe 0 depth
-  (s, tm) <- timeIOMs $ evaluate =<< runParIO conf (safeSkeleton items' cap depth' True)
+  (s, tm) <- timeIOS $ evaluate =<< runParIO conf (safeSkeleton items' cap depth' True)
   case s of
     Nothing -> return ()
     Just (sol, profit, weight) -> do
@@ -192,4 +192,4 @@ main = do
         else putStrLn "Expected Result? False"
 
       putStrLn $ "Solution: " ++ show  (map (\(_,b,c) -> (b,c)) sol)
-      putStrLn $ "computeTime: " ++ show tm ++ " ms"
+      putStrLn $ "computeTime: " ++ show tm ++ " s"
