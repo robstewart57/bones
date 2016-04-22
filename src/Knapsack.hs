@@ -50,7 +50,14 @@ safeSkeleton items capacity depth diversify = do
 
 -- Potential choices is simply the list of un-chosen items
 generateChoices :: Closure Solution -> Closure [Item] -> Par [Closure Item]
-generateChoices _ remaining = return $ map toClosureItem (unClosure remaining)
+generateChoices cSol cRemaining = do
+  cap <- io getUserState
+
+  let (_, _, curWeight)   = unClosure cSol
+      remaining           = unClosure cRemaining
+
+  -- Could also combine these as a fold, but it's easier to read this way.
+  return $ map toClosureItem $ filter (\(_,_,w) -> curWeight + w <= cap) remaining
 
 -- Calculate the bounds function
 shouldPrune :: Closure Item
@@ -65,8 +72,8 @@ shouldPrune i' bnd' sol' rem' = do
       r           = unClosure rem'
 
   cap <- io getUserState
-  if w + iw > cap || fromIntegral bnd > ub (p + ip) (w + iw) cap r then
-    return Prune
+  if fromIntegral bnd > ub (p + ip) (w + iw) cap r then
+    return PruneLevel
   else
     return NoPrune
 
