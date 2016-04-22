@@ -5,7 +5,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.Types where
 
 import           Control.DeepSeq       (NFData)
 import           Control.Parallel.HdpH (Closure, Par, ToClosure, StaticToClosure,
-                                        StaticDecl, here, locToClosure,
+                                        StaticDecl, here, locToClosure, mkClosure,
                                         declare, staticToClosure)
 
 import           Data.Serialize        (Serialize)
@@ -30,6 +30,10 @@ data PruneType = NoPrune | Prune | PruneLevel
 
 instance ToClosure () where
   locToClosure = $(here)
+
+unitClosure :: Closure ()
+{-#INLINE unitClosure #-}
+unitClosure = $(mkClosure [| () |])
 
 declareStatic :: StaticDecl
 declareStatic = declare (staticToClosure :: StaticToClosure ())

@@ -83,7 +83,7 @@ branchAndBoundChild (spawnDepth, n, c, sol, rem, fs') =
       NoPrune -> do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
         toClosure <$> branchAndBoundExpand spawnDepth n startingSol rem' fs'
-      _       -> return $ toClosure ()
+      _       -> return unitClosure
 
 branchAndBoundExpand ::
        Int
@@ -177,7 +177,7 @@ bAndb_updateParentBest ((sol, bnd), fs) = Thunk $ do
     ns <- allNodes
     mapM_ (pushTo $(mkClosure [| bAndb_updateLocalBounds (bnd, fs) |])) ns
 
-  return $ toClosure ()
+  return unitClosure
 
 findSolution :: Int
              -> Closure a
@@ -243,7 +243,7 @@ branchAndBoundFindChild (spawnDepth, n, c, sol, rem, fs') =
       NoPrune -> do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
         toClosure <$> branchAndBoundFindExpand spawnDepth n startingSol rem' fs'
-      _ -> return $ toClosure ()
+      _ -> return unitClosure
 
 branchAndBoundFindExpand ::
        Int
@@ -319,7 +319,7 @@ bAndbFind_updateParentBest ((sol, bnd), fs) = Thunk $ do
     fnd <- io $ readFromRegistry solutionSignalKey
     put fnd () -- Signal early exit
 
-  return $ toClosure ()
+  return unitClosure
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl

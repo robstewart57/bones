@@ -81,9 +81,9 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
         if wasTaken
          then spinGet resM
          else do
-          put taken (toClosure ())
+          put taken unitClosure
           safeBranchAndBoundSkeletonChild (c , master , sol , rem' , fs) >>= put resM
-          return $ toClosure ()
+          return unitClosure
 
       spawnTasksWithPrios (p, (_, _, resG, task, _, _, _)) = sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
 
@@ -172,13 +172,13 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs) =
     -- Notify the parent that we are doing this task.
     -- The parent might start it's task before our signal reaches it
     -- but given enough cores that's not an issue
-    suc <- tryRPut taken (toClosure ())
+    suc <- tryRPut taken unitClosure
     res <- spinGet suc -- See if we should start or not
     if unClosure res
       then
         safeBranchAndBoundSkeletonChild (c, n, sol, remaining, fs)
       else
-        return (toClosure ())
+        return unitClosure
 
 safeBranchAndBoundSkeletonChild ::
     ( Closure c
@@ -197,8 +197,9 @@ safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs) = do
     case sp of
       NoPrune -> do
        (startingSol, _, remaining') <- (unClosure $ step fs') c sol remaining
-       toClosure <$> safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs
-      _       -> return $ toClosure ()
+       safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs
+       return unitClosure
+      _       -> return unitClosure
 
 safeBranchAndBoundSkeletonExpand ::
        Node
@@ -278,7 +279,7 @@ bAndb_updateParentBest ((sol, bnd), fs) = Thunk $ do
     ns <- allNodes
     mapM_ (pushTo $(mkClosure [| bAndb_updateLocalBounds (bnd, fs) |])) ns
 
-  return $ toClosure ()
+  return unitClosure
 
 -- Skeleton which attempts to keep "activeTasks" tasks available without
 -- generating all work ahead of time
@@ -328,10 +329,10 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
             if wasTaken
             then spinGet res >> handleTasks m tq
             else do
-              put taken (toClosure ())
+              put taken unitClosure
               safeBranchAndBoundSkeletonChild (c , m, sol , rem , fs)
               handleTasks m tq
-          Done -> return $ toClosure ()
+          Done -> return unitClosure
 
 data Task a = Task a | Done deriving (Show)
 
