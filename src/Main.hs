@@ -60,15 +60,6 @@ optsParser = info (helper <*> optionParser)
              <> header   "Bones-Knapsack"
              )
 
--- Missing from optparse-applicative in lts-3.9
-defaultPrefs :: ParserPrefs
-defaultPrefs = ParserPrefs
-    { prefMultiSuffix = ""
-    , prefDisambiguate = False
-    , prefShowHelpOnError = False
-    , prefBacktrack = True
-    , prefColumns = 80 }
-
 parseHdpHOpts :: [String] -> IO (RTSConf, [String])
 parseHdpHOpts args = do
   either_conf <- updateConf args defaultRTSConf
@@ -183,7 +174,6 @@ main = do
 
   (cap, ans, items) <- readProblem filename
 
-  -- Items should always be sorted by value density. For now we assume this is the case on the input file
   let (items', permMap) = orderItems items
 
   register Main.declareStatic
