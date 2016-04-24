@@ -27,8 +27,9 @@ import           Control.Parallel.HdpH (Closure, Thunk(..), Par, io)
 
 import           Data.IORef      (IORef, atomicWriteIORef, newIORef, readIORef)
 
-import           Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IM (empty, insert, lookup)
+import Data.Array.Base (unsafeWrite, unsafeRead)
+import Data.Array.IO (IOArray)
+import qualified Data.Array.IO as A
 
 import           System.IO.Unsafe      (unsafePerformIO)
 
@@ -36,28 +37,27 @@ import           System.IO.Unsafe      (unsafePerformIO)
 -- Global (process local) Registry
 --------------------------------------------------------------------------------
 
-registry :: IORef (IntMap (IORef a))
+registry :: IOArray Int (IORef a)
 {-# NOINLINE registry #-}
-registry = unsafePerformIO $ newIORef IM.empty
+registry = unsafePerformIO $ A.newArray_ (0,3)
 
 getRefFromRegistry :: Int -> IO (IORef a)
-getRefFromRegistry k = do
-  r <- readIORef registry
-  case IM.lookup k r of
-    Nothing -> error $ " Could not find key: " ++ show k ++ " in global registry."
-    Just x  -> return x
+{-# INLINE getRefFromRegistry #-}
+getRefFromRegistry = unsafeRead registry
 
 readFromRegistry :: Int -> IO a
 readFromRegistry k = getRefFromRegistry k >>= readIORef
 
+-- Note: Adding new values the registry is *not thread safe*. This is not an
+-- issue in practice as global state is initialised on each node once before
+-- starting computation. Updating values may be made thread safe using atomic
+-- modify IORef.
 addRefToRegistry :: Int -> IORef a -> IO ()
-addRefToRegistry k v = do
-  reg <- readIORef registry
-  atomicWriteIORef registry $ IM.insert k v reg
+{-# INLINE addRefToRegistry #-}
+addRefToRegistry = unsafeWrite registry
 
 addToRegistry :: Int -> a -> IO ()
 addToRegistry k v = newIORef v >>= addRefToRegistry k
-
 
 -- Functions a user can use to manipulate state
 getUserState :: IO a
