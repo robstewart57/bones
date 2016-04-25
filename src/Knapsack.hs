@@ -5,6 +5,8 @@ module Knapsack
 (
     safeSkeleton
   , declareStatic
+  , Solution
+  , Item
 ) where
 
 import Control.Parallel.HdpH hiding (declareStatic)
@@ -17,7 +19,8 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 
 import Data.IORef (newIORef)
 
-import Types
+type Solution = ([Item], Integer, Integer)
+type Item = (Int, Integer, Integer)
 
 safeSkeleton :: [Item] -> Integer -> Int -> Bool -> Par Solution
 safeSkeleton items capacity depth diversify = do

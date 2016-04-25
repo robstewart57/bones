@@ -9,6 +9,10 @@ module KnapsackArray
 (
     safeSkeleton
   , declareStatic
+  , Items(..)
+  , profit
+  , weight
+  , Solution(..)
 ) where
 
 import Control.Parallel.HdpH hiding (declareStatic)

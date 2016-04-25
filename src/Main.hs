@@ -9,9 +9,11 @@ import qualified Control.Parallel.HdpH as HdpH (declareStatic)
 import Control.Exception        (evaluate)
 import Control.Monad (void)
 
+import qualified Data.Array.Unboxed as U
+import qualified Data.BitSetArrayIO as A
+
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
-
 
 import Data.List  (sortBy)
 import Data.Maybe (fromMaybe)
@@ -22,10 +24,8 @@ import System.IO (hSetBuffering, stdout, stderr, BufferMode(..))
 
 import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces, digit, newline)
 
-import Knapsack (safeSkeleton)
-import qualified Knapsack (declareStatic)
-
-import Types
+import qualified Knapsack as KL
+import qualified KnapsackArray as KA
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
@@ -35,9 +35,12 @@ import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 -- Argument Handling
 --------------------------------------------------------------------------------
 
+data Algorithm = List | BitArray deriving (Read, Show)
+
 data Options = Options
   {
     inputFile  :: FilePath
+  , algorithm  :: Algorithm
   , spawnDepth :: Maybe Int
   }
 
@@ -47,6 +50,11 @@ optionParser = Options
                 (  long "inputFile"
                 <> short 'f'
                 <> help "Knapsack input file to use"
+                )
+          <*> option auto
+                (  long "algorithm"
+                <> short 'a'
+                <> help "Which Knapsack algorithm to use: [List, BitArray]"
                 )
           <*> optional (option auto
                 (   long "spawnDepth"
@@ -137,7 +145,7 @@ parseKnapsack = do
 -- Knapsack Functionality
 --------------------------------------------------------------------------------
 
-orderItems :: [(Integer, Integer)] -> ([Item], IntMap Int)
+orderItems :: [(Integer, Integer)] -> ([(Int, Integer, Integer)], IntMap Int)
 orderItems its = let labeled = zip [1 .. length its] its
                      ordered = sortBy (flip compareDensity) labeled
                      pairs   = zip [1 .. length its] (map fst ordered)
@@ -152,22 +160,12 @@ orderItems its = let labeled = zip [1 .. length its] its
 --------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
-
-$(return []) -- Bring all types into scope for TH.
-
-declareStatic :: StaticDecl
-declareStatic = mconcat
-  [
-    HdpH.declareStatic
-  , Knapsack.declareStatic
-  ]
-
 main :: IO ()
 main = do
   args <- getArgs
   (conf, args') <- parseHdpHOpts args
 
-  Options filename depth <- handleParseResult $ execParserPure defaultPrefs optsParser args'
+  Options filename alg depth <- handleParseResult $ execParserPure defaultPrefs optsParser args'
 
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
@@ -175,11 +173,25 @@ main = do
   (cap, ans, items) <- readProblem filename
 
   let (items', permMap) = orderItems items
+      depth'            = fromMaybe 0 depth
 
-  register Main.declareStatic
+  (s, tm) <- case alg of
+    List -> do
+      register $ HdpH.declareStatic <> KL.declareStatic
+      timeIOS $ evaluate =<< runParIO conf (KL.safeSkeleton items' cap depth' True)
 
-  let depth' = fromMaybe 0 depth
-  (s, tm) <- timeIOS $ evaluate =<< runParIO conf (safeSkeleton items' cap depth' True)
+    BitArray -> do
+      register $ HdpH.declareStatic <> KA.declareStatic
+
+      let globalItems = itemsToArrays items' (length items')
+
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KA.safeSkeleton globalItems (length items') cap depth' True)
+      case sol of
+        Nothing -> return (Nothing, t)
+        Just (KA.Solution is prof weig) -> do
+          is' <- A.fromImmutable is >>= A.toList
+          return (Just (arrayToItems is' globalItems, toInteger prof, toInteger weig), t)
+
   case s of
     Nothing -> return ()
     Just (sol, profit, weight) -> do
@@ -193,3 +205,15 @@ main = do
 
       putStrLn $ "Solution: " ++ show  (map (\(_,b,c) -> (b,c)) sol)
       putStrLn $ "computeTime: " ++ show tm ++ " s"
+
+  where
+    itemsToArrays is sz =
+      let ps = U.array (1, sz) (map (\(id,p,w) -> (id, fromIntegral p)) is)
+          ws = U.array (1, sz) (map (\(id,p,w) -> (id, fromIntegral w)) is)
+      in KA.Items ps ws
+
+    arrayToItems is items =
+      map (\i -> let p = KA.profit items i
+                     w = KA.weight items i
+                 in (0 :: Int, toInteger p, toInteger w)
+          ) is
