@@ -84,13 +84,14 @@ safeSkeleton items numItems capacity depth diversify = do
 
   where
     emptySet = do
+      -- We might be off by 1 here
       a <- A.new numItems
-      forM_ [0 .. numItems - 1] (`A.remove` a)
+      forM_ [1 .. numItems] (`A.remove` a)
       A.makeImmutable a
 
     fullSet = do
       a <- A.new numItems
-      forM_ [0 .. numItems - 1] (`A.insert` a)
+      forM_ [1 .. numItems] (`A.insert` a)
       A.makeImmutable a
 
 --------------------------------------------------------------------------------
@@ -114,6 +115,7 @@ generateChoices cSol cRemaining = do
       remaining                = unClosure cRemaining
 
   ils <- io $ A.fromImmutable remaining >>= A.toList
+
   return . map toClosureInt . filter (\i -> weight items i + curWeight <= cap) $ ils
 
 -- Calculate the bounds function
@@ -136,8 +138,8 @@ shouldPrune i' bnd' sol' rem' = do
 
   is  <- io $ A.fromImmutable r >>= A.toList
 
-  bnd <- ub (p + ip) (w + iw) cap is items
-  if fromIntegral bnd > bnd then
+  ub' <- ub (p + ip) (w + iw) cap is items
+  if fromIntegral bnd > ub' then
     return PruneLevel
   else
     return NoPrune
@@ -165,7 +167,6 @@ step :: Closure Item -> Closure Solution -> Closure IBitSetArray
 step i' s' r' = do
   let i                 = unClosure i'
       (Solution is p w) = unClosure s'
-      r                 = unClosure r'
 
   items <- io $ readFromRegistry searchSpaceKey
   let ip = profit items i
@@ -175,13 +176,12 @@ step i' s' r' = do
   io $ A.insert i is'
   newSol <- io $ A.makeImmutable is'
 
-  rm <- io $ A.fromImmutable r
-  io $ A.remove i rm
-  newS <- io $ A.makeImmutable rm
+  -- Not sure we actually need a COPY here, can probably just remove in place.
+  newS <- removeChoice i' r'
 
   return ( toClosureSolution (Solution newSol (ip + p) (iw + w))
          , toClosureInt (ip + p)
-         , toClosureBitSetArray newS
+         , newS
          )
 
 removeChoice :: Closure Item -> Closure IBitSetArray -> Par (Closure IBitSetArray)
@@ -189,9 +189,12 @@ removeChoice i' its' = do
   let i   = unClosure i'
       its = unClosure its'
 
+  ls <- io $ A.fromImmutable its >>= A.toList
+
   its' <- io $ A.fromImmutable its
-  io $ A.remove i its'
-  newS <- io $ A.makeImmutable its'
+  cp   <- io $ A.copy its'
+  io $ A.remove i cp
+  newS <- io $ A.makeImmutable cp
 
   return $ toClosureBitSetArray newS
 

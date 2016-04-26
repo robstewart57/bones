@@ -22,7 +22,7 @@ packages:
     commit: c276f9c340a0a9e31ba633fdbc3889e8bef8ff1e
 - location:
     git: git@github.com:BlairArchibald/bitSetArray.git
-    commit: 26d7dd146e7e18a843e89d986ad91814329a346b
+    commit: 1a4291d320a43812a31f646f13030c24d9d5f4c8
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []
