@@ -15,9 +15,7 @@ module Knapsack
 import Control.Parallel.HdpH hiding (declareStatic)
 
 import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions), PruneType(..))
-import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry
-                                                          , putUserState
-                                                          , getUserState)
+import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
@@ -28,7 +26,7 @@ import GHC.Generics (Generic)
 import Data.Serialize (Serialize)
 import Data.IORef (newIORef)
 
-data Solution = Solution ![Item] !Integer !Integer deriving (Generic)
+data Solution = Solution !Integer ![Item] !Integer !Integer deriving (Generic)
 data Item = Item {-# UNPACK #-} !Int !Integer !Integer deriving (Generic)
 
 instance Serialize Solution where
@@ -39,12 +37,11 @@ instance NFData Item where
 skeletonSafe :: [Item] -> Integer -> Int -> Bool -> Par Solution
 skeletonSafe items capacity depth diversify = do
   io $ newIORef items >>= addGlobalSearchSpaceToRegistry
-  io $ putUserState capacity
 
   Safe.search
     diversify
     depth
-    (toClosureSolution (Solution [] 0 0))
+    (toClosureSolution (Solution capacity [] 0 0))
     (toClosureItemList items)
     (toClosureInteger (0 :: Integer))
     (toClosure (BAndBFunctions
@@ -57,11 +54,10 @@ skeletonSafe items capacity depth diversify = do
 skeletonBroadcast :: [Item] -> Integer -> Int -> Bool -> Par Solution
 skeletonBroadcast items capacity depth diversify = do
   io $ newIORef items >>= addGlobalSearchSpaceToRegistry
-  io $ putUserState capacity
 
   Broadcast.search
     depth
-    (toClosureSolution (Solution [] 0 0))
+    (toClosureSolution (Solution capacity [] 0 0))
     (toClosureItemList items)
     (toClosureInteger (0 :: Integer))
     (toClosure (BAndBFunctions
@@ -85,9 +81,7 @@ skeletonBroadcast items capacity depth diversify = do
 -- Potential choices is simply the list of un-chosen items
 generateChoices :: Closure Solution -> Closure [Item] -> Par [Closure Item]
 generateChoices cSol cRemaining = do
-  cap <- io getUserState
-
-  let (Solution _  _ curWeight) = unClosure cSol
+  let (Solution cap _  _ curWeight) = unClosure cSol
       remaining                 = unClosure cRemaining
 
   -- Could also combine these as a fold, but it's easier to read this way.
@@ -101,11 +95,10 @@ shouldPrune :: Closure Item
             -> Par PruneType
 shouldPrune i' bnd' sol' rem' = do
   let (Item _ ip iw)   = unClosure i'
-      (Solution _ p w) = unClosure sol'
+      (Solution cap _ p w) = unClosure sol'
       bnd              = unClosure bnd'
       r                = unClosure rem'
 
-  cap <- io getUserState
   if fromIntegral bnd > ub (p + ip) (w + iw) cap r then
     return PruneLevel
   else
@@ -129,11 +122,11 @@ step :: Closure Item -> Closure Solution -> Closure [Item]
      -> Par (Closure Solution, Closure Integer, Closure [Item])
 step i s r = do
   let i'@(Item _ np nw) = unClosure i
-      (Solution is p w) = unClosure s
+      (Solution cap is p w) = unClosure s
 
   rm <- removeChoice i r
 
-  return (toClosureSolution (Solution (i':is) (p + np) (w + nw)), toClosureInteger (p + np), rm)
+  return (toClosureSolution (Solution cap (i':is) (p + np) (w + nw)), toClosureInteger (p + np), rm)
 
 removeChoice :: Closure Item -> Closure [Item] -> Par (Closure [Item])
 removeChoice i its =

@@ -187,7 +187,7 @@ main = do
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
-            Just (KL.Solution is prof weig) ->
+            Just (KL.Solution _ is prof weig) ->
               return (Just ((map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig)), t)
 
     BroadcastList -> do
@@ -196,7 +196,7 @@ main = do
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
-            Just (KL.Solution is prof weig) ->
+            Just (KL.Solution _ is prof weig) ->
               return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
 
     SafeBitArray -> do
