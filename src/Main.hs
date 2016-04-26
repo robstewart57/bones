@@ -29,13 +29,18 @@ import qualified KnapsackArray as KA
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+
 -- Simple program to solve Knapsack instances using the bones skeleton library.
 
 --------------------------------------------------------------------------------
 -- Argument Handling
 --------------------------------------------------------------------------------
 
-data Algorithm = List | BitArray deriving (Read, Show)
+data Algorithm = SafeList
+               | BroadcastList
+               | SafeBitArray deriving (Read, Show)
 
 data Options = Options
   {
@@ -54,7 +59,7 @@ optionParser = Options
           <*> option auto
                 (  long "algorithm"
                 <> short 'a'
-                <> help "Which Knapsack algorithm to use: [List, BitArray]"
+                <> help "Which Knapsack algorithm to use: [SafeList, BitArray]"
                 )
           <*> optional (option auto
                 (   long "spawnDepth"
@@ -176,16 +181,25 @@ main = do
       depth'            = fromMaybe 0 depth
 
   (s, tm) <- case alg of
-    List -> do
-      register $ HdpH.declareStatic <> KL.declareStatic
+    SafeList -> do
+      register $ HdpH.declareStatic <> KL.declareStatic <> Safe.declareStatic
       let is = map (\(a,b,c) -> (KL.Item a b c)) items'
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.safeSkeleton is cap depth' True)
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution is prof weig) ->
               return (Just ((map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig)), t)
 
-    BitArray -> do
+    BroadcastList -> do
+      register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
+      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
+      case sol of
+            Nothing -> return (Nothing, t)
+            Just (KL.Solution is prof weig) ->
+              return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
+
+    SafeBitArray -> do
       register $ HdpH.declareStatic <> KA.declareStatic
 
       let globalItems = itemsToArrays items' (length items')

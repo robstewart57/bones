@@ -5,7 +5,8 @@
 
 module Knapsack
 (
-    safeSkeleton
+    skeletonSafe
+  , skeletonBroadcast
   , declareStatic
   , Solution(..)
   , Item(..)
@@ -18,6 +19,7 @@ import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceT
                                                           , putUserState
                                                           , getUserState)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
 import Control.DeepSeq (NFData)
 
@@ -34,13 +36,30 @@ instance Serialize Item where
 instance NFData Solution where
 instance NFData Item where
 
-safeSkeleton :: [Item] -> Integer -> Int -> Bool -> Par Solution
-safeSkeleton items capacity depth diversify = do
+skeletonSafe :: [Item] -> Integer -> Int -> Bool -> Par Solution
+skeletonSafe items capacity depth diversify = do
   io $ newIORef items >>= addGlobalSearchSpaceToRegistry
   io $ putUserState capacity
 
   Safe.search
     diversify
+    depth
+    (toClosureSolution (Solution [] 0 0))
+    (toClosureItemList items)
+    (toClosureInteger (0 :: Integer))
+    (toClosure (BAndBFunctions
+      $(mkClosure [| generateChoices |])
+      $(mkClosure [| shouldPrune |])
+      $(mkClosure [| shouldUpdateBound |])
+      $(mkClosure [| step |])
+      $(mkClosure [| removeChoice |])))
+
+skeletonBroadcast :: [Item] -> Integer -> Int -> Bool -> Par Solution
+skeletonBroadcast items capacity depth diversify = do
+  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+  io $ putUserState capacity
+
+  Broadcast.search
     depth
     (toClosureSolution (Solution [] 0 0))
     (toClosureItemList items)
