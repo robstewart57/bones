@@ -1,12 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Knapsack
 (
     safeSkeleton
   , declareStatic
-  , Solution
-  , Item
+  , Solution(..)
+  , Item(..)
 ) where
 
 import Control.Parallel.HdpH hiding (declareStatic)
@@ -17,10 +19,20 @@ import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceT
                                                           , getUserState)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 
+import Control.DeepSeq (NFData)
+
+import GHC.Generics (Generic)
+
+import Data.Serialize (Serialize)
 import Data.IORef (newIORef)
 
-type Solution = ([Item], Integer, Integer)
-type Item = (Int, Integer, Integer)
+data Solution = Solution ![Item] !Integer !Integer deriving (Generic)
+data Item = Item {-# UNPACK #-} !Int !Integer !Integer deriving (Generic)
+
+instance Serialize Solution where
+instance Serialize Item where
+instance NFData Solution where
+instance NFData Item where
 
 safeSkeleton :: [Item] -> Integer -> Int -> Bool -> Par Solution
 safeSkeleton items capacity depth diversify = do
@@ -30,7 +42,7 @@ safeSkeleton items capacity depth diversify = do
   Safe.search
     diversify
     depth
-    (toClosureSolution ([], 0, 0))
+    (toClosureSolution (Solution [] 0 0))
     (toClosureItemList items)
     (toClosureInteger (0 :: Integer))
     (toClosure (BAndBFunctions
@@ -56,11 +68,11 @@ generateChoices :: Closure Solution -> Closure [Item] -> Par [Closure Item]
 generateChoices cSol cRemaining = do
   cap <- io getUserState
 
-  let (_, _, curWeight)   = unClosure cSol
-      remaining           = unClosure cRemaining
+  let (Solution _  _ curWeight) = unClosure cSol
+      remaining                 = unClosure cRemaining
 
   -- Could also combine these as a fold, but it's easier to read this way.
-  return $ map toClosureItem $ filter (\(_,_,w) -> curWeight + w <= cap) remaining
+  return $ map toClosureItem $ filter (\(Item _ _ w) -> curWeight + w <= cap) remaining
 
 -- Calculate the bounds function
 shouldPrune :: Closure Item
@@ -69,10 +81,10 @@ shouldPrune :: Closure Item
             -> Closure [Item]
             -> Par PruneType
 shouldPrune i' bnd' sol' rem' = do
-  let (_, ip, iw) = unClosure i'
-      (_, p, w)   = unClosure sol'
-      bnd         = unClosure bnd'
-      r           = unClosure rem'
+  let (Item _ ip iw)   = unClosure i'
+      (Solution _ p w) = unClosure sol'
+      bnd              = unClosure bnd'
+      r                = unClosure rem'
 
   cap <- io getUserState
   if fromIntegral bnd > ub (p + ip) (w + iw) cap r then
@@ -83,7 +95,7 @@ shouldPrune i' bnd' sol' rem' = do
   where
     ub :: Integer -> Integer -> Integer -> [Item] -> Integer
     ub p _ _ [] = p
-    ub p w c ((_, ip, iw):is)
+    ub p w c (Item _ ip iw : is)
       | c - (w + iw) >= 0 = ub (p + ip) (w + iw) c is
       | otherwise = p + floor (fromIntegral (c - w) * divf ip iw)
 
@@ -97,18 +109,17 @@ shouldUpdateBound x y = unClosure x > unClosure y
 step :: Closure Item -> Closure Solution -> Closure [Item]
      -> Par (Closure Solution, Closure Integer, Closure [Item])
 step i s r = do
-  let i'@(_, np, nw)   = unClosure i
-      (is, p, w)       = unClosure s
+  let i'@(Item _ np nw) = unClosure i
+      (Solution is p w) = unClosure s
 
   rm <- removeChoice i r
 
-  return (toClosureSolution (i':is, p + np, w + nw), toClosureInteger (p + np), rm)
+  return (toClosureSolution (Solution (i':is) (p + np) (w + nw)), toClosureInteger (p + np), rm)
 
 removeChoice :: Closure Item -> Closure [Item] -> Par (Closure [Item])
 removeChoice i its =
-  let (v, _, _) = unClosure i
-      its' = unClosure its
-      is = filter (\(n, _, _) -> v /= n) its'
+  let (Item v _ _) = unClosure i
+      is = filter (\(Item n _ _) -> v /= n) (unClosure its)
   in return $ toClosureItemList is
 
 --------------------------------------------------------------------------------

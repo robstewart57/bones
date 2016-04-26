@@ -178,7 +178,12 @@ main = do
   (s, tm) <- case alg of
     List -> do
       register $ HdpH.declareStatic <> KL.declareStatic
-      timeIOS $ evaluate =<< runParIO conf (KL.safeSkeleton items' cap depth' True)
+      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.safeSkeleton is cap depth' True)
+      case sol of
+            Nothing -> return (Nothing, t)
+            Just (KL.Solution is prof weig) ->
+              return (Just ((map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig)), t)
 
     BitArray -> do
       register $ HdpH.declareStatic <> KA.declareStatic
