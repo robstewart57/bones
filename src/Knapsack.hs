@@ -125,11 +125,6 @@ removeChoice i its =
 --------------------------------------------------------------------------------
 -- Closure Instances
 --------------------------------------------------------------------------------
-instance ToClosure Item     where locToClosure = $(here)
-instance ToClosure [Item]   where locToClosure = $(here)
-instance ToClosure Solution where locToClosure = $(here)
-instance ToClosure Integer  where locToClosure = $(here)
-
 instance ToClosure (BAndBFunctions Solution Integer Item [Item]) where
   locToClosure = $(here)
 
@@ -164,11 +159,7 @@ $(return [])
 declareStatic :: StaticDecl
 declareStatic = mconcat
   [
-    declare (staticToClosure :: StaticToClosure Integer)
-  , declare (staticToClosure :: StaticToClosure Item)
-  , declare (staticToClosure :: StaticToClosure [Item])
-  , declare (staticToClosure :: StaticToClosure Solution)
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Integer Item [Item]))
+    declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Integer Item [Item]))
 
   -- B&B Functions
   , declare $(static 'generateChoices)
