@@ -455,5 +455,4 @@ declareStatic = mconcat
   , declare $(static 'bAndb_updateLocalBounds)
   , declare $(static 'safeBranchAndBoundSkeletonChildTask)
   , declare $(static 'runAndFill)
-  , Types.declareStatic
   ]

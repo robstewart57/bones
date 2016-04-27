@@ -1,12 +1,10 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Bones.Skeletons.BranchAndBound.HdpH.Types where
 
 import           Control.DeepSeq       (NFData)
-import           Control.Parallel.HdpH (Closure, Par, ToClosure, StaticToClosure,
-                                        StaticDecl, here, locToClosure, mkClosure,
-                                        declare, staticToClosure)
+import           Control.Parallel.HdpH (Closure, Par, mkClosure)
 
 import           Data.Serialize        (Serialize)
 
@@ -28,12 +26,6 @@ instance Serialize (BAndBFunctions a b c s)
 
 data PruneType = NoPrune | Prune | PruneLevel
 
-instance ToClosure () where
-  locToClosure = $(here)
-
 unitClosure :: Closure ()
 {-#INLINE unitClosure #-}
 unitClosure = $(mkClosure [| () |])
-
-declareStatic :: StaticDecl
-declareStatic = declare (staticToClosure :: StaticToClosure ())

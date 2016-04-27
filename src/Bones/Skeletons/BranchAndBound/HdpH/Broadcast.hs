@@ -12,7 +12,7 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         ToClosure, allNodes, declare, get, here,
                                         io, locToClosure, mkClosure, myNode, fork,
                                         one, pushTo, spawn, spawnAt, static, put,
-                                        new, glob, staticToClosure, toClosure, unClosure)
+                                        new, glob, staticToClosure, unClosure)
 
 import           Control.Monad         (forM_, when)
 
@@ -82,7 +82,8 @@ branchAndBoundChild (spawnDepth, n, c, sol, rem, fs') =
     case sp of
       NoPrune -> do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
-        toClosure <$> branchAndBoundExpand spawnDepth n startingSol rem' fs'
+        branchAndBoundExpand spawnDepth n startingSol rem' fs'
+        return unitClosure
       _       -> return unitClosure
 
 branchAndBoundExpand ::
@@ -242,7 +243,8 @@ branchAndBoundFindChild (spawnDepth, n, c, sol, rem, fs') =
     case sp of
       NoPrune -> do
         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
-        toClosure <$> branchAndBoundFindExpand spawnDepth n startingSol rem' fs'
+        branchAndBoundFindExpand spawnDepth n startingSol rem' fs'
+        return unitClosure
       _ -> return unitClosure
 
 branchAndBoundFindExpand ::
@@ -333,5 +335,4 @@ declareStatic = mconcat
   -- Decision Problem Skeleton
   , declare $(static 'branchAndBoundFindChild)
   , declare $(static 'bAndbFind_updateParentBest)
-  , Types.declareStatic
   ]
