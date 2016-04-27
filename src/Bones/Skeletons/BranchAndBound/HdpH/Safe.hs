@@ -106,12 +106,7 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
          then spinGet (resultM task)
          else do
           put (isStarted task) unitClosure
-          safeBranchAndBoundSkeletonChild ( choice task
-                                          , master
-                                          , solution task
-                                          , space task
-                                          , fs
-                                          , fsl)
+          safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) fs fsl
           put (resultM task) unitClosure
           return unitClosure
 
@@ -223,21 +218,21 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs) =
     if doStart
       then
         let fsL = extractFunctions fs
-        in safeBranchAndBoundSkeletonChild (c, n, sol, remaining, fs, fsL)
+        in safeBranchAndBoundSkeletonChild c n sol remaining fs fsL
       else
         return unitClosure
 
 -- TODO: Why do we have to step here? Can this be pushed into expand?
 -- TODO: Why does this take a tuple anyway?
 safeBranchAndBoundSkeletonChild ::
-    ( Closure c
-    , Node
-    , Closure a
-    , Closure s
-    , Closure (BAndBFunctions a b c s)
-    , BAndBFunctionsL a b c s)
+       Closure c
+    -> Node
+    -> Closure a
+    -> Closure s
+    -> Closure (BAndBFunctions a b c s)
+    -> BAndBFunctionsL a b c s
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs, fsl) = do
+safeBranchAndBoundSkeletonChild c parent sol remaining fs fsl = do
     bnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
@@ -407,7 +402,7 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
             then spinGet res >> handleTasks m fsl tq
             else do
               put taken unitClosure
-              safeBranchAndBoundSkeletonChild (c , m, sol , rem , fs, fsl)
+              safeBranchAndBoundSkeletonChild c m sol rem fs fsl
               handleTasks m fsl tq
           Done -> return unitClosure
 
