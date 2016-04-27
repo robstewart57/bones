@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Bones.Skeletons.BranchAndBound.HdpH.Safe
   (
@@ -78,7 +79,7 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
 
   -- Handle all tasks in sequential order using the master thread
   let fsl     = extractFunctions fs
-      updateB = updateBound (unClosure fs)
+      !updateB = updateBound (unClosure fs)
   mapM_ (handleTask master fsl updateB) taskList
 
   -- Global solution is a tuple (solution, bound). We only return the solution
@@ -218,14 +219,12 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs) =
     doStart <- unClosure <$> (spinGet =<< tryRPut taken unitClosure)
     if doStart
       then
-        let fsL     = extractFunctions fs
-            updateB = updateBound (unClosure fs)
+        let fsL      = extractFunctions fs
+            !updateB = updateBound (unClosure fs)
         in safeBranchAndBoundSkeletonChild c n sol remaining updateB fsL
       else
         return unitClosure
 
--- TODO: Why do we have to step here? Can this be pushed into expand?
--- TODO: Why does this take a tuple anyway?
 safeBranchAndBoundSkeletonChild ::
        Closure c
     -> Node
@@ -345,7 +344,7 @@ updateParentBoundT ((sol, bnd), updateB) = Thunk $ do
 
 extractFunctions :: Closure (BAndBFunctions a b c s) -> BAndBFunctionsL a b c s
 extractFunctions fns =
-  let BAndBFunctions a b c d e = unClosure fns
+  let BAndBFunctions !a !b !c !d !e = unClosure fns
   in  BAndBFunctionsL (unClosure a) (unClosure b) (unClosure c) (unClosure d) (unClosure e)
 
 --------------------------------------------------------------------------------
