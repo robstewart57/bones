@@ -25,6 +25,30 @@ import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
 
 --------------------------------------------------------------------------------
+--- Types
+--------------------------------------------------------------------------------
+
+-- | Type representing all information required for a task including coordination variables
+data Task c a s = Task
+  {
+    priority  :: Int
+    -- ^ Discrepancy based task priority
+  , isStarted :: IVar (Closure ())
+    -- ^ Has someone (sequential thread or worker) already started on this sub-tree
+  -- TODO: Do I really need both of these?
+  , resultM   :: IVar (Closure ())
+  , resultG   :: GIVar (Closure ())
+  , comp      :: Closure (Par (Closure ()))
+    -- ^ The search computation to run (already initialised with variables)
+  , choice    :: Closure c
+    -- ^ Choice variable (for running sequentially)
+  , solution  :: Closure a
+    -- ^ Solution variable (for running sequentially)
+  , space     :: Closure s
+    -- ^ Space variable (for running sequentially)
+  }
+
+--------------------------------------------------------------------------------
 --- Skeleton Functionality
 --------------------------------------------------------------------------------
 
@@ -75,20 +99,30 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
       -- | Perform a task only if another worker hasn't already started working
       -- on this subtree. If they have then the master thead spins so that it
       -- doesn't get descheduled while waiting.
-      handleTask master (_, (taken, resM, _, _, c, sol, rem')) = do
-        wasTaken <- probe taken
+      handleTask master task = do
+        wasTaken <- probe (isStarted task)
         if wasTaken
-         then spinGet resM
+         then spinGet (resultM task)
          else do
-          put taken unitClosure
-          safeBranchAndBoundSkeletonChild (c , master , sol , rem' , fs) >>= put resM
+          put (isStarted task) unitClosure
+          safeBranchAndBoundSkeletonChild ( choice task
+                                          , master
+                                          , solution task
+                                          , space task
+                                          , fs)
+          put (resultM task) unitClosure
           return unitClosure
 
-      -- TODO: Task data type will make this look much nicer
-      spawnTasksWithPrios (p, (_, _, resG, task, _, _, _)) = sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
+      spawnTasksWithPrios task =
+        let prio  = priority task
+            comp' = comp task
+            resG  = resultG task
+        in sparkWithPrio one prio $(mkClosure [| runAndFill (comp', resG) |])
 
-      spawnTasksLinear p (_, (_, _, resG, task, _, _, _)) = do
-        sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
+      spawnTasksLinear p task = do
+        let comp' = comp task
+            resG  = resultG task
+        sparkWithPrio one p $(mkClosure [| runAndFill (comp', resG) |])
         return $ p + 1
 
 -- | Run a computation and place the result in the specified GIVar. TODO: Why
@@ -111,8 +145,7 @@ createTasksToDepth :: Node
                    -- ^ Initial search-space
                    -> Closure (BAndBFunctions a b c s)
                    -- ^ Higher Order B&B functions
-                   -- TODO: Make a task datatype
-                   -> Par [(Int,(IVar (Closure ()), IVar (Closure ()), GIVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
+                   -> Par [Task c a s]
 createTasksToDepth master depth ssol sspace fs = let fns = unClosure fs in go depth 1 0 ssol sspace fns
   where
     go d i parentP sol space fns
@@ -153,7 +186,7 @@ createTasksToDepth master depth ssol sspace fs = let fns = unClosure fs in go de
                                                                       , fs
                                                                       ) |])
 
-       return (p, (taken, resMaster, resG, task, c, s, r))
+       return (Task p taken resMaster resG task c s r)
 
     zipWithM3 f xs ys zs = sequence (zipWith3 f xs ys zs)
 
@@ -358,7 +391,7 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
       handleTasks m tq = do
         t <- io . atomically $ readTChan tq
         case t of
-          Task (taken, res, c, sol, rem) -> do
+          TaskD (taken, res, c, sol, rem) -> do
             wasTaken <- probe taken
             if wasTaken
             then spinGet res >> handleTasks m tq
@@ -368,14 +401,14 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
               handleTasks m tq
           Done -> return unitClosure
 
-data Task a = Task a | Done deriving (Show)
+data TaskD a = TaskD a | Done deriving (Show)
 
 taskGenerator ::
      [(Closure c, Closure a, Closure s)]
   -> Node
   -> Int
   -> Closure (BAndBFunctions a b c s)
-  -> TChan (Task (IVar (Closure ()), IVar (Closure ()), Closure c, Closure a, Closure s))
+  -> TChan (TaskD (IVar (Closure ()), IVar (Closure ()), Closure c, Closure a, Closure s))
   -> Int
   -> Par ()
 taskGenerator toplvl m depth fs tq n = do
@@ -392,7 +425,7 @@ taskGenerator toplvl m depth fs tq n = do
   (nextP, signals, tasks) <- foldM spawnTasksWithPrios (1, [], []) st
 
   -- Give the tasks to the master
-  mapM_ (io . atomically . writeTChan tq . Task) tasks
+  mapM_ (io . atomically . writeTChan tq . TaskD) tasks
 
   generateNewTasks remainingTasks signals nextP
 
@@ -412,7 +445,7 @@ taskGenerator toplvl m depth fs tq n = do
         case task of
           Just t -> do
             (prio', s, t') <- spawnTaskWithPrio prio t
-            io . atomically $ writeTChan tq (Task t')
+            io . atomically $ writeTChan tq (TaskD t')
             generateNewTasks tl (s:signalList) prio'
           Nothing -> io . atomically $ writeTChan tq Done
 
