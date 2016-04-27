@@ -7,29 +7,20 @@ module Bones.Skeletons.BranchAndBound.HdpH.Safe
   , searchDynamic
   ) where
 
-import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
-                                        StaticToClosure, Thunk (Thunk),
-                                        ToClosure, IVar, GIVar, allNodes, declare, get, here,
-                                        io, locToClosure, mkClosure, myNode, rput,
-                                        one, pushTo, spawn, spawnAt, static, spawnWithPrio, sparkWithPrio,
-                                        staticToClosure, toClosure, unClosure, probe,
-                                        put, new, glob, tryGet, tryRPut, fork)
+import           Control.Parallel.HdpH ( Closure, Node, Par, StaticDecl, Thunk (Thunk), IVar, GIVar
+                                       , allNodes, declare, get, io, mkClosure, myNode, rput, one
+                                       , pushTo, spawnAt, static, spawnWithPrio, sparkWithPrio
+                                       , unClosure, probe, put, new, glob, tryGet, tryRPut, fork)
 
-import           Control.Monad         (forM_, forM, foldM, foldM_, when, replicateM, zipWithM)
+import           Control.Monad         (forM_, forM, foldM, foldM_, when)
 
-import           Control.Concurrent.STM (atomically)
+import           Control.Concurrent.STM       (atomically)
 import           Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
 
-import           Data.IORef            (IORef, atomicModifyIORef')
-import           Data.List             (mapAccumL, sortBy)
+import           Data.IORef            (atomicModifyIORef')
+import           Data.Maybe            (catMaybes)
 
-import           Data.Maybe            (catMaybes, mapMaybe)
-import           Data.Monoid           (mconcat)
-
-import           Data.Ord  (comparing)
-
-import           Bones.Skeletons.BranchAndBound.HdpH.Types hiding (declareStatic)
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Types as Types
+import           Bones.Skeletons.BranchAndBound.HdpH.Types
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
 
