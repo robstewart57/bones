@@ -77,7 +77,8 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
   spawnTasks taskList
 
   -- Handle all tasks in sequential order using the master thread
-  mapM_ (handleTask master) taskList
+  let fsl = extractFunctions fs
+  mapM_ (handleTask master fsl) taskList
 
   -- Global solution is a tuple (solution, bound). We only return the solution
   io $ unClosure . fst <$> readFromRegistry solutionKey
@@ -99,7 +100,7 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
       -- | Perform a task only if another worker hasn't already started working
       -- on this subtree. If they have then the master thead spins so that it
       -- doesn't get descheduled while waiting.
-      handleTask master task = do
+      handleTask master fsl task = do
         wasTaken <- probe (isStarted task)
         if wasTaken
          then spinGet (resultM task)
@@ -109,7 +110,8 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
                                           , master
                                           , solution task
                                           , space task
-                                          , fs)
+                                          , fs
+                                          , fsl)
           put (resultM task) unitClosure
           return unitClosure
 
@@ -220,29 +222,30 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs) =
     doStart <- unClosure <$> (spinGet =<< tryRPut taken unitClosure)
     if doStart
       then
-        safeBranchAndBoundSkeletonChild (c, n, sol, remaining, fs)
+        let fsL = extractFunctions fs
+        in safeBranchAndBoundSkeletonChild (c, n, sol, remaining, fs, fsL)
       else
         return unitClosure
 
 -- TODO: Why do we have to step here? Can this be pushed into expand?
+-- TODO: Why does this take a tuple anyway?
 safeBranchAndBoundSkeletonChild ::
     ( Closure c
     , Node
     , Closure a
     , Closure s
-    , Closure (BAndBFunctions a b c s))
+    , Closure (BAndBFunctions a b c s)
+    , BAndBFunctionsL a b c s)
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs) = do
+safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs, fsl) = do
     bnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
-    let fs' = unClosure fs
-
-    sp <- unClosure (shouldPrune fs') c bnd sol remaining
+    sp <- shouldPruneL fsl c bnd sol remaining
     case sp of
       NoPrune -> do
-       (startingSol, _, remaining') <- (unClosure $ step fs') c sol remaining
-       safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs
+       (startingSol, _, remaining') <- stepL fsl c sol remaining
+       safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs fsl
        return unitClosure
       _       -> return unitClosure
 
@@ -257,39 +260,40 @@ safeBranchAndBoundSkeletonExpand ::
        -- ^ Current search-space
     -> Closure (BAndBFunctions a b c s)
        -- ^ Higher order B&B functions
+    -> BAndBFunctionsL a b c s
+       -- ^ Pre-unclosured local function variants
     -> Par ()
        -- ^ Side-effect only function
-safeBranchAndBoundSkeletonExpand parent sol remaining fs = do
-  -- TODO: Adding a new function will let us capture fs' in the scope and remove unClosure's
-  -- We could also do this in "child"
-  let fs' = unClosure fs
-  choices <- (unClosure $ generateChoices fs') sol remaining
-  go sol remaining choices fs'
+safeBranchAndBoundSkeletonExpand parent sol remaining fs fsl = do
+  -- TODO: Adding a new function will let us capture the functions in the scope
+  -- and might help the optimiser reduce overheads
+  choices <- generateChoicesL fsl sol remaining
+  go sol remaining choices
     where
-      go _ _ [] _ = return ()
+      go _ _ [] = return ()
 
-      go sol remaining (c:cs) fs' = do
+      go sol remaining (c:cs) = do
         bnd <- io $ readFromRegistry boundKey
 
-        sp <- unClosure (shouldPrune fs') c bnd sol remaining
+        sp <- shouldPruneL fsl c bnd sol remaining
         case sp of
           Prune      -> do
-            remaining'' <- unClosure (removeChoice fs') c remaining
-            go sol remaining'' cs fs'
+            remaining'' <- removeChoiceL fsl c remaining
+            go sol remaining'' cs
 
           PruneLevel -> return ()
 
           NoPrune    -> do
-            (newSol, newBnd, remaining') <- (unClosure $ step fs') c sol remaining
+            (newSol, newBnd, remaining') <- stepL fsl c sol remaining
 
-            when (unClosure (updateBound fs') newBnd bnd) $ do
+            when (updateBoundL fsl newBnd bnd) $ do
                 updateLocalBounds newBnd fs
                 notifyParentOfNewBound parent (newSol, newBnd) fs
 
-            safeBranchAndBoundSkeletonExpand parent newSol remaining' fs
+            safeBranchAndBoundSkeletonExpand parent newSol remaining' fs fsl
 
-            remaining'' <- unClosure (removeChoice fs') c remaining
-            go sol remaining'' cs fs'
+            remaining'' <- removeChoiceL fsl c remaining
+            go sol remaining'' cs
 
 -- | Update local bounds
 updateLocalBounds :: Closure b
@@ -344,6 +348,11 @@ updateParentBoundT ((sol, bnd), fs) = Thunk $ do
 
   return unitClosure
 
+extractFunctions :: Closure (BAndBFunctions a b c s) -> BAndBFunctionsL a b c s
+extractFunctions fns =
+  let BAndBFunctions a b c d e = unClosure fns
+  in  BAndBFunctionsL (unClosure a) (unClosure b) (unClosure c) (unClosure d) (unClosure e)
+
 --------------------------------------------------------------------------------
 -- Skeleton making use of Dynamic work generation. NOT COMPLETE
 --------------------------------------------------------------------------------
@@ -386,19 +395,20 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
 
         fork $ taskGenerator topLevelChoices master spawnDepth fs taskQueue activeTasks
 
-        handleTasks master taskQueue
+        let fsl = extractFunctions fs
+        handleTasks master fsl taskQueue
 
-      handleTasks m tq = do
+      handleTasks m fsl tq = do
         t <- io . atomically $ readTChan tq
         case t of
           TaskD (taken, res, c, sol, rem) -> do
             wasTaken <- probe taken
             if wasTaken
-            then spinGet res >> handleTasks m tq
+            then spinGet res >> handleTasks m fsl tq
             else do
               put taken unitClosure
-              safeBranchAndBoundSkeletonChild (c , m, sol , rem , fs)
-              handleTasks m tq
+              safeBranchAndBoundSkeletonChild (c , m, sol , rem , fs, fsl)
+              handleTasks m fsl tq
           Done -> return unitClosure
 
 data TaskD a = TaskD a | Done deriving (Show)

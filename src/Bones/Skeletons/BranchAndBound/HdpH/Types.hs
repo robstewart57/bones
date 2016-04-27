@@ -21,6 +21,15 @@ data BAndBFunctions a b c s =
     , removeChoice    :: Closure (Closure c -> Closure s-> Par (Closure s))
     } deriving (Generic)
 
+data BAndBFunctionsL a b c s =
+  BAndBFunctionsL
+    { generateChoicesL :: Closure a -> Closure s -> Par [Closure c]
+    , shouldPruneL     :: Closure c -> Closure b -> Closure a -> Closure s -> Par PruneType
+    , updateBoundL     :: Closure b -> Closure b -> Bool
+    , stepL            :: Closure c -> Closure a -> Closure s -> Par (Closure a, Closure b, Closure s)
+    , removeChoiceL    :: Closure c -> Closure s-> Par (Closure s)
+    } deriving (Generic)
+
 instance NFData (BAndBFunctions a b c s)
 instance Serialize (BAndBFunctions a b c s)
 
