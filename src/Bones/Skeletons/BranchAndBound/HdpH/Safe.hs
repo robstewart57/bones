@@ -77,8 +77,9 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
   spawnTasks taskList
 
   -- Handle all tasks in sequential order using the master thread
-  let fsl = extractFunctions fs
-  mapM_ (handleTask master fsl) taskList
+  let fsl     = extractFunctions fs
+      updateB = updateBound (unClosure fs)
+  mapM_ (handleTask master fsl updateB) taskList
 
   -- Global solution is a tuple (solution, bound). We only return the solution
   io $ unClosure . fst <$> readFromRegistry solutionKey
@@ -100,13 +101,13 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
       -- | Perform a task only if another worker hasn't already started working
       -- on this subtree. If they have then the master thead spins so that it
       -- doesn't get descheduled while waiting.
-      handleTask master fsl task = do
+      handleTask master fsl updateB task = do
         wasTaken <- probe (isStarted task)
         if wasTaken
          then spinGet (resultM task)
          else do
           put (isStarted task) unitClosure
-          safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) fs fsl
+          safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) updateB fsl
           put (resultM task) unitClosure
           return unitClosure
 
@@ -217,8 +218,9 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs) =
     doStart <- unClosure <$> (spinGet =<< tryRPut taken unitClosure)
     if doStart
       then
-        let fsL = extractFunctions fs
-        in safeBranchAndBoundSkeletonChild c n sol remaining fs fsL
+        let fsL     = extractFunctions fs
+            updateB = updateBound (unClosure fs)
+        in safeBranchAndBoundSkeletonChild c n sol remaining updateB fsL
       else
         return unitClosure
 
@@ -229,10 +231,10 @@ safeBranchAndBoundSkeletonChild ::
     -> Node
     -> Closure a
     -> Closure s
-    -> Closure (BAndBFunctions a b c s)
+    -> Closure (UpdateBoundFn b)
     -> BAndBFunctionsL a b c s
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild c parent sol remaining fs fsl = do
+safeBranchAndBoundSkeletonChild c parent sol remaining updateB fsl = do
     bnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
@@ -240,7 +242,7 @@ safeBranchAndBoundSkeletonChild c parent sol remaining fs fsl = do
     case sp of
       NoPrune -> do
        (startingSol, _, remaining') <- stepL fsl c sol remaining
-       safeBranchAndBoundSkeletonExpand parent startingSol remaining' fs fsl
+       safeBranchAndBoundSkeletonExpand parent startingSol remaining' updateB fsl
        return unitClosure
       _       -> return unitClosure
 
@@ -253,13 +255,13 @@ safeBranchAndBoundSkeletonExpand ::
        -- ^ Current solution
     -> Closure s
        -- ^ Current search-space
-    -> Closure (BAndBFunctions a b c s)
+    -> Closure (UpdateBoundFn b)
        -- ^ Higher order B&B functions
     -> BAndBFunctionsL a b c s
        -- ^ Pre-unclosured local function variants
     -> Par ()
        -- ^ Side-effect only function
-safeBranchAndBoundSkeletonExpand parent sol remaining fs fsl = do
+safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl = do
   -- TODO: Adding a new function will let us capture the functions in the scope
   -- and might help the optimiser reduce overheads
   choices <- generateChoicesL fsl sol remaining
@@ -282,10 +284,10 @@ safeBranchAndBoundSkeletonExpand parent sol remaining fs fsl = do
             (newSol, newBnd, remaining') <- stepL fsl c sol remaining
 
             when (updateBoundL fsl newBnd bnd) $ do
-                updateLocalBounds newBnd fs
-                notifyParentOfNewBound parent (newSol, newBnd) fs
+                updateLocalBounds newBnd (updateBoundL fsl)
+                notifyParentOfNewBound parent (newSol, newBnd) updateBnd
 
-            safeBranchAndBoundSkeletonExpand parent newSol remaining' fs fsl
+            safeBranchAndBoundSkeletonExpand parent newSol remaining' updateBnd fsl
 
             remaining'' <- removeChoiceL fsl c remaining
             go sol remaining'' cs
@@ -293,20 +295,18 @@ safeBranchAndBoundSkeletonExpand parent sol remaining fs fsl = do
 -- | Update local bounds
 updateLocalBounds :: Closure b
                   -- ^ New bound
-                  -> Closure (BAndBFunctions a b c s)
+                  -> UpdateBoundFn b
                   -- ^ Functions (to access updateBound function)
                   -> Par ()
                   -- ^ Side-effect only function
-updateLocalBounds bnd fs = do
+updateLocalBounds bnd updateB = do
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
-    if (unClosure $ updateBound (unClosure fs)) bnd b
-      then (bnd, ())
-      else (b, ())
+    if updateB bnd b then (bnd, ()) else (b, ())
 
-updateLocalBoundsT :: (Closure b, Closure (BAndBFunctions a b c s))
+updateLocalBoundsT :: (Closure b, Closure (UpdateBoundFn b))
                    -> Thunk (Par ())
-updateLocalBoundsT (bnd, fs) = Thunk $ updateLocalBounds bnd fs
+updateLocalBoundsT (bnd, bndfn) = Thunk $ updateLocalBounds bnd (unClosure bndfn)
 
 -- | Push new bounds to the master node. Also sends the new solution to avoid
 --   additional messages.
@@ -314,7 +314,7 @@ notifyParentOfNewBound :: Node
                        -- ^ Master node
                        -> (Closure a, Closure b)
                        -- ^ (Solution, Bound)
-                       -> Closure (BAndBFunctions a b c s)
+                       -> Closure (UpdateBoundFn b)
                        -- ^ B&B Functions
                        -> Par ()
                        -- ^ Side-effect only function
@@ -326,20 +326,20 @@ notifyParentOfNewBound parent solPlusBnd fs = do
 
 -- | Update the global solution with the new solution. If this succeeds then
 --   tell all other nodes to update their local information.
-updateParentBoundT :: ((Closure a, Closure b), Closure (BAndBFunctions a b c s))
-                     -- ^ ((newSol, newBound), B&B Functions)
+updateParentBoundT :: ((Closure a, Closure b), Closure (UpdateBoundFn b))
+                     -- ^ ((newSol, newBound), UpdateBound)
                   -> Thunk (Par (Closure ()))
                      -- ^ Side-effect only function
-updateParentBoundT ((sol, bnd), fs) = Thunk $ do
+updateParentBoundT ((sol, bnd), updateB) = Thunk $ do
   ref     <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if (unClosure $ updateBound (unClosure fs)) bnd b
+                if unClosure updateB bnd b
                     then ((sol, bnd), True)
                     else (prev      , False)
 
   when updated $ do
     ns <- allNodes
-    mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (bnd, fs) |])) ns
+    mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (bnd, updateB) |])) ns
 
   return unitClosure
 
@@ -390,20 +390,21 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
 
         fork $ taskGenerator topLevelChoices master spawnDepth fs taskQueue activeTasks
 
-        let fsl = extractFunctions fs
-        handleTasks master fsl taskQueue
+        let fsl     = extractFunctions fs
+            updateB = updateBound (unClosure fs)
+        handleTasks master fsl updateB taskQueue
 
-      handleTasks m fsl tq = do
+      handleTasks m fsl updateB tq = do
         t <- io . atomically $ readTChan tq
         case t of
           TaskD (taken, res, c, sol, rem) -> do
             wasTaken <- probe taken
             if wasTaken
-            then spinGet res >> handleTasks m fsl tq
+            then spinGet res >> handleTasks m fsl updateB tq
             else do
               put taken unitClosure
-              safeBranchAndBoundSkeletonChild c m sol rem fs fsl
-              handleTasks m fsl tq
+              safeBranchAndBoundSkeletonChild c m sol rem updateB fsl
+              handleTasks m fsl updateB tq
           Done -> return unitClosure
 
 data TaskD a = TaskD a | Done deriving (Show)

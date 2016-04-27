@@ -21,6 +21,8 @@ data BAndBFunctions a b c s =
     , removeChoice    :: Closure (Closure c -> Closure s-> Par (Closure s))
     } deriving (Generic)
 
+type UpdateBoundFn b = Closure b -> Closure b -> Bool
+
 data BAndBFunctionsL a b c s =
   BAndBFunctionsL
     { generateChoicesL :: Closure a -> Closure s -> Par [Closure c]
