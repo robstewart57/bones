@@ -28,45 +28,53 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
 --- Skeleton Functionality
 --------------------------------------------------------------------------------
 
--- Safe B&B skeleton with a single WQ
-search :: Bool
-       -> Int
-       -> Closure a
-       -> Closure s
-       -> Closure b
-       -> Closure (BAndBFunctions a b c s)
-       -> Par a
+-- | Perform a backtracking search using a skeleton with increased performance
+-- guarantees These guarantees are:
+--
+-- (1) Never slower than a sequential run of the same skeleton
+-- (2) Adding more workers does not slow down the computation
+-- (3) Results should have low variance allowing them to be reproducible
+search :: Bool                              -- ^ Should discrepancy search be used? (else spawn priorities linearly)
+       -> Int                               -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
+       -> Closure a                         -- ^ Initial solution closure
+       -> Closure s                         -- ^ Initial search-space closure
+       -> Closure b                         -- ^ Initial bounds closure
+       -> Closure (BAndBFunctions a b c s)  -- ^ Higher order B&B functions
+       -> Par a                             -- ^ The resulting solution after the search completes
 search diversify spawnDepth startingSol startingSpace bnd fs = do
-  let fs' = unClosure fs
+  initialiseRegistries =<< allNodes
 
-  allNodes >>= initRegistries
+  master    <- myNode
 
-  -- Sequentially execute tasks up to depth d.
-  myNode >>= spawnAndExecuteTasks
+  -- Construct task parameters and priorities
+  taskList  <- createTasksToDepth master spawnDepth startingSol startingSpace fs
 
-  -- Return the result stored in the global bound as the answer
+  -- Register tasks with HdpH
+  spawnTasks taskList
+
+  -- Handle all tasks in sequential order using the master thread
+  mapM_ (handleTask master) taskList
+
+  -- Global solution is a tuple (solution, bound). We only return the solution
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
-      initRegistries nodes = do
+      -- | Ensure the global state is configured on all nodes.
+      initialiseRegistries nodes = do
         io $ addToRegistry solutionKey (startingSol, bnd)
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
 
-      spawnAndExecuteTasks master = do
-        tlist  <- spawnTillDepth master spawnDepth startingSol startingSpace fs
-
+      spawnTasks taskList =
         if diversify then
-        -- TODO: we possible want to sort the output so that we spawn high priority tasks first, this way
-        -- the work stealing doesn't steal the low priority tasks before the
-        -- high priorities
-
-        -- Tasks are spawned in reverse since the priority queue places newer
-        -- tasks before older (we want the opposite effect)
-          mapM_ spawnTasksWithPrios (reverse tlist)
+          -- Tasks are spawned in reverse since the priority queue places newer
+          -- tasks before older (we want the opposite effect)
+          mapM_ spawnTasksWithPrios (reverse taskList)
         else
-          foldM_ spawnTasksLinear 0 tlist
+          foldM_ spawnTasksLinear 0 (reverse taskList)
 
-        mapM_ (handleTask master) tlist
 
+      -- | Perform a task only if another worker hasn't already started working
+      -- on this subtree. If they have then the master thead spins so that it
+      -- doesn't get descheduled while waiting.
       handleTask master (_, (taken, resM, _, _, c, sol, rem')) = do
         wasTaken <- probe taken
         if wasTaken
@@ -76,42 +84,53 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
           safeBranchAndBoundSkeletonChild (c , master , sol , rem' , fs) >>= put resM
           return unitClosure
 
+      -- TODO: Task data type will make this look much nicer
       spawnTasksWithPrios (p, (_, _, resG, task, _, _, _)) = sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
 
       spawnTasksLinear p (_, (_, _, resG, task, _, _, _)) = do
         sparkWithPrio one p $(mkClosure [| runAndFill (task, resG) |])
         return $ p + 1
 
+-- | Run a computation and place the result in the specified GIVar. TODO: Why
+--   can't we use spawn here? It's to do with needing the GIVar to be seen by
+--   the master node but I can't remember why (It looks like they are separate
+--   IVars)
 runAndFill :: (Closure (Par (Closure a)), GIVar (Closure a)) -> Thunk (Par ())
 runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 
-spawnTillDepth ::
-              Node
-           -> Int
-           -> Closure a
-           -> Closure s
-           -> Closure (BAndBFunctions a b c s)
-           -> Par [(Int,(IVar (Closure ()), IVar (Closure ()), GIVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
-spawnTillDepth master depth ssol sspace fs = go depth 1 0 ssol sspace
+-- | Construct tasks to given depth in the tree. Assigned priorities in a
+--   discrepancy search manner (which can later be ignored if required). This
+--   function is essentially where the key scheduling decisions happen.
+createTasksToDepth :: Node
+                   -- ^ The master node which stores the global bound
+                   -> Int
+                   -- ^ Depth to spawn to. Depth = 0 implies top level only.
+                   -> Closure a
+                   -- ^ Initial solution
+                   -> Closure s
+                   -- ^ Initial search-space
+                   -> Closure (BAndBFunctions a b c s)
+                   -- ^ Higher Order B&B functions
+                   -- TODO: Make a task datatype
+                   -> Par [(Int,(IVar (Closure ()), IVar (Closure ()), GIVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
+createTasksToDepth master depth ssol sspace fs = let fns = unClosure fs in go depth 1 0 ssol sspace fns
   where
-    go d i parentP sol space
+    go d i parentP sol space fns
          | d == 0 = do
-             let fns = unClosure fs
              cs <- unClosure (generateChoices fns) sol space
              spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
 
              zipWithM3 (\p c s -> createTask (parentP + p, (c, sol, s))) (0 : inf i) cs spaces
          | otherwise = do
-             let fns = unClosure fs
              cs     <- unClosure (generateChoices fns) sol space
              spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
 
-             let ts = zip3 (0 : inf i) cs spaces
+             let ts = zip3 ((0 :: Int): inf i) cs spaces
              tasks  <- mapM (\(p, c,s) -> createTask (p, (c, sol, s))) ts
 
              xs <- forM (zip ts tasks) $ \((p,c,s), t) -> do
                     (sol', _, space') <- unClosure (step fns) c sol s
-                    ts' <- go (d - 1) (i * 2) p sol' space'
+                    ts' <- go (d - 1) (i * 2) p sol' space' fns
                     -- Don't bother storing the "left" subtask since the parent
                     -- task will do this first.
                     case ts' of
@@ -140,16 +159,18 @@ spawnTillDepth master depth ssol sspace fs = go depth 1 0 ssol sspace
 
     inf x = x : inf x
 
+-- | Keep checking an IVar to see if it has been filled yet. Does not sleep to
+--   avoid rescheduling the checking thread (important for maintaining the
+--   sequential search order but needs to be used with care).
 spinGet :: IVar a -> Par a
 spinGet v = do
   res <- tryGet v
   case res of
-    Just x -> return x
-    -- TODO: Sleep a bit first?
+    Just x  -> return x
     Nothing -> spinGet v
 
--- TODO: Perhaps all spawns should happen here, that way we never need to pass
--- spawnDepth to expand and we can remove a pattern match case for performance.
+-- | Main task function. Checks if the sequential thread has already started
+--   working on this branch. If it hasn't start searching the subtree.
 safeBranchAndBoundSkeletonChildTask ::
     ( GIVar (Closure ())
     , Closure c
@@ -157,20 +178,20 @@ safeBranchAndBoundSkeletonChildTask ::
     , Closure a
     , Closure s
     , Closure (BAndBFunctions a b c s))
+    -- TODO: Do I really need closures here? I guess to write into the IVar
     -> Thunk (Par (Closure ()))
 safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs) =
   Thunk $ do
-    -- Notify the parent that we are doing this task.
-    -- The parent might start it's task before our signal reaches it
-    -- but given enough cores that's not an issue
-    suc <- tryRPut taken unitClosure
-    res <- spinGet suc -- See if we should start or not
-    if unClosure res
+    -- Notify the parent that we are starting this task. TryRPut returns true if
+    -- the IVar was free and write was successful, else false
+    doStart <- unClosure <$> (spinGet =<< tryRPut taken unitClosure)
+    if doStart
       then
         safeBranchAndBoundSkeletonChild (c, n, sol, remaining, fs)
       else
         return unitClosure
 
+-- TODO: Why do we have to step here? Can this be pushed into expand?
 safeBranchAndBoundSkeletonChild ::
     ( Closure c
     , Node
@@ -192,18 +213,27 @@ safeBranchAndBoundSkeletonChild (c, parent, sol, remaining, fs) = do
        return unitClosure
       _       -> return unitClosure
 
+-- | Main search function. Performs a backtracking search using the user
+--  specified functions.
 safeBranchAndBoundSkeletonExpand ::
        Node
+       -- ^ Master node (for transferring new bounds)
     -> Closure a
+       -- ^ Current solution
     -> Closure s
+       -- ^ Current search-space
     -> Closure (BAndBFunctions a b c s)
+       -- ^ Higher order B&B functions
     -> Par ()
+       -- ^ Side-effect only function
 safeBranchAndBoundSkeletonExpand parent sol remaining fs = do
+  -- TODO: Adding a new function will let us capture fs' in the scope and remove unClosure's
+  -- We could also do this in "child"
   let fs' = unClosure fs
   choices <- (unClosure $ generateChoices fs') sol remaining
   go sol remaining choices fs'
     where
-      go sol remaining [] fs' = return ()
+      go _ _ [] _ = return ()
 
       go sol remaining (c:cs) fs' = do
         bnd <- io $ readFromRegistry boundKey
@@ -220,57 +250,70 @@ safeBranchAndBoundSkeletonExpand parent sol remaining fs = do
             (newSol, newBnd, remaining') <- (unClosure $ step fs') c sol remaining
 
             when (unClosure (updateBound fs') newBnd bnd) $ do
-                bAndb_parUpdateLocalBounds newBnd fs
-                bAndb_notifyParentOfNewBest parent (newSol, newBnd) fs
+                updateLocalBounds newBnd fs
+                notifyParentOfNewBound parent (newSol, newBnd) fs
 
             safeBranchAndBoundSkeletonExpand parent newSol remaining' fs
 
             remaining'' <- unClosure (removeChoice fs') c remaining
             go sol remaining'' cs fs'
 
-bAndb_parUpdateLocalBounds :: Closure b
-                           -> Closure (BAndBFunctions a b c s)
-                           -> Par ()
-bAndb_parUpdateLocalBounds bnd fs = do
+-- | Update local bounds
+updateLocalBounds :: Closure b
+                  -- ^ New bound
+                  -> Closure (BAndBFunctions a b c s)
+                  -- ^ Functions (to access updateBound function)
+                  -> Par ()
+                  -- ^ Side-effect only function
+updateLocalBounds bnd fs = do
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
     if (unClosure $ updateBound (unClosure fs)) bnd b
       then (bnd, ())
       else (b, ())
 
-bAndb_updateLocalBounds :: (Closure b,
-                            Closure (BAndBFunctions a b c s))
-                        -> Thunk (Par ())
-bAndb_updateLocalBounds (bnd, fs) =
-  Thunk $ bAndb_parUpdateLocalBounds bnd fs
+updateLocalBoundsT :: (Closure b, Closure (BAndBFunctions a b c s))
+                   -> Thunk (Par ())
+updateLocalBoundsT (bnd, fs) = Thunk $ updateLocalBounds bnd fs
 
-bAndb_notifyParentOfNewBest :: Node
-                            -> (Closure a, Closure b)
-                            -> Closure (BAndBFunctions a b c s)
-                            -> Par ()
-bAndb_notifyParentOfNewBest parent solPlusBnd fs = do
-  -- Wait for an update ack to avoid a race condition in the case when all
-  -- children finish before the final updateBest task has ran on master.
-  spawnAt parent updateFn  >>= get
+-- | Push new bounds to the master node. Also sends the new solution to avoid
+--   additional messages.
+notifyParentOfNewBound :: Node
+                       -- ^ Master node
+                       -> (Closure a, Closure b)
+                       -- ^ (Solution, Bound)
+                       -> Closure (BAndBFunctions a b c s)
+                       -- ^ B&B Functions
+                       -> Par ()
+                       -- ^ Side-effect only function
+notifyParentOfNewBound parent solPlusBnd fs = do
+  -- We wait for an ack to avoid a race condition where all children finish
+  -- before the final updateBest task is ran on the master node.
+  spawnAt parent $(mkClosure [| updateParentBoundT (solPlusBnd, fs) |]) >>= get
   return ()
 
-  where updateFn = $(mkClosure [| bAndb_updateParentBest (solPlusBnd, fs) |])
-
-bAndb_updateParentBest :: ( (Closure a, Closure b)
-                          , Closure (BAndBFunctions a b c s))
-                       -> Thunk (Par (Closure ()))
-bAndb_updateParentBest ((sol, bnd), fs) = Thunk $ do
-  ref <- io $ getRefFromRegistry solutionKey
-  updated <- io $ atomicModifyIORef' ref $ \prev@(oldSol, b) ->
+-- | Update the global solution with the new solution. If this succeeds then
+--   tell all other nodes to update their local information.
+updateParentBoundT :: ((Closure a, Closure b), Closure (BAndBFunctions a b c s))
+                     -- ^ ((newSol, newBound), B&B Functions)
+                  -> Thunk (Par (Closure ()))
+                     -- ^ Side-effect only function
+updateParentBoundT ((sol, bnd), fs) = Thunk $ do
+  ref     <- io $ getRefFromRegistry solutionKey
+  updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
                 if (unClosure $ updateBound (unClosure fs)) bnd b
                     then ((sol, bnd), True)
                     else (prev      , False)
 
   when updated $ do
     ns <- allNodes
-    mapM_ (pushTo $(mkClosure [| bAndb_updateLocalBounds (bnd, fs) |])) ns
+    mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (bnd, fs) |])) ns
 
   return unitClosure
+
+--------------------------------------------------------------------------------
+-- Skeleton making use of Dynamic work generation. NOT COMPLETE
+--------------------------------------------------------------------------------
 
 -- Skeleton which attempts to keep "activeTasks" tasks available without
 -- generating all work ahead of time
@@ -442,8 +485,8 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     declare $(static 'initRegistryBound)
-  , declare $(static 'bAndb_updateParentBest)
-  , declare $(static 'bAndb_updateLocalBounds)
+  , declare $(static 'updateParentBoundT)
+  , declare $(static 'updateLocalBoundsT)
   , declare $(static 'safeBranchAndBoundSkeletonChildTask)
   , declare $(static 'runAndFill)
   ]
