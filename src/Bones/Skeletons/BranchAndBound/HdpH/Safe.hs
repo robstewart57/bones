@@ -260,12 +260,10 @@ safeBranchAndBoundSkeletonExpand ::
        -- ^ Pre-unclosured local function variants
     -> Par ()
        -- ^ Side-effect only function
-safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl = do
-  -- TODO: Adding a new function will let us capture the functions in the scope
-  -- and might help the optimiser reduce overheads
-  choices <- generateChoicesL fsl sol remaining
-  go sol remaining choices
+safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl = expand sol remaining
     where
+      expand s r = generateChoicesL fsl s r >>= go s r
+
       go _ _ [] = return ()
 
       go sol remaining (c:cs) = do
@@ -286,7 +284,7 @@ safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl = do
                 updateLocalBounds newBnd (updateBoundL fsl)
                 notifyParentOfNewBound parent (newSol, newBnd) updateBnd
 
-            safeBranchAndBoundSkeletonExpand parent newSol remaining' updateBnd fsl
+            expand newSol remaining'
 
             remaining'' <- removeChoiceL fsl c remaining
             go sol remaining'' cs
