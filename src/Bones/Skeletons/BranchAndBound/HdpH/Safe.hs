@@ -72,7 +72,8 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
   master    <- myNode
 
   -- Construct task parameters and priorities
-  taskList  <- createTasksToDepth master spawnDepth startingSol startingSpace fs
+  -- Hard-coded to spawn only leaf tasks (for now)
+  taskList  <- createTasksToDepth True master spawnDepth startingSol startingSpace fs
 
   -- Register tasks with HdpH
   spawnTasks taskList
@@ -134,7 +135,9 @@ runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 -- | Construct tasks to given depth in the tree. Assigned priorities in a
 --   discrepancy search manner (which can later be ignored if required). This
 --   function is essentially where the key scheduling decisions happen.
-createTasksToDepth :: Node
+createTasksToDepth :: Bool
+                   -- ^ Should we create tasks only at the leafs (max depth) or also at each node?
+                   -> Node
                    -- ^ The master node which stores the global bound
                    -> Int
                    -- ^ Depth to spawn to. Depth = 0 implies top level only.
@@ -145,29 +148,39 @@ createTasksToDepth :: Node
                    -> Closure (BAndBFunctions a b c s)
                    -- ^ Higher Order B&B functions
                    -> Par [Task c a s]
-createTasksToDepth master depth ssol sspace fs = let fns = unClosure fs in go depth 1 0 ssol sspace fns
+createTasksToDepth lowestOnly master depth ssol sspace fs = let fns = unClosure fs
+                                                            in go depth 1 0 ssol sspace fns
   where
     go d i parentP sol space fns
          | d == 0 = do
              cs <- unClosure (generateChoices fns) sol space
              spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
 
-             zipWithM3 (\p c s -> createTask (parentP + p, (c, sol, s))) (0 : inf i) cs spaces
+             zipWithM3 (\p c s -> createTask (parentP + p, (c, sol, s))) (0 : inc i) cs spaces
          | otherwise = do
              cs     <- unClosure (generateChoices fns) sol space
              spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
+             let ts = zip3 ((0 :: Int) : inc i) cs spaces
 
-             let ts = zip3 ((0 :: Int): inf i) cs spaces
-             tasks  <- mapM (\(p, c,s) -> createTask (p, (c, sol, s))) ts
+             -- We can either create tasks at all nodes or wait until we reach
+             -- the leaf nodes (spawn-depth) before creating Both methods have
+             -- different effects on the overall search ordering.
+             xs <- if lowestOnly
+                    then
+                      forM ts $ \(p,c,s) -> do
+                        (sol', _, space') <- unClosure (step fns) c sol s
+                        go (d - 1) (i * 2) (parentP + p) sol' space' fns
+                    else do
+                      tasks  <- mapM (\(p, c,s) -> createTask (parentP + p, (c, sol, s))) ts
 
-             xs <- forM (zip ts tasks) $ \((p,c,s), t) -> do
-                    (sol', _, space') <- unClosure (step fns) c sol s
-                    ts' <- go (d - 1) (i * 2) p sol' space' fns
-                    -- Don't bother storing the "left" subtask since the parent
-                    -- task will do this first.
-                    case ts' of
-                      [] -> return [t]
-                      _  -> return (t : tail ts')
+                      forM (zip ts tasks) $ \((p,c,s), t) -> do
+                        (sol', _, space') <- unClosure (step fns) c sol s
+                        ts' <- go (d - 1) (i * 2) p sol' space' fns
+                        -- Don't bother storing the "left" subtask since the parent
+                        -- task will do this first.
+                        case ts' of
+                          [] -> return [t]
+                          _  -> return (t : tail ts')
 
              return (concat xs)
 
@@ -190,6 +203,8 @@ createTasksToDepth master depth ssol sspace fs = let fns = unClosure fs in go de
     zipWithM3 f xs ys zs = sequence (zipWith3 f xs ys zs)
 
     inf x = x : inf x
+
+    inc x = x : inc (x + 1)
 
 -- | Keep checking an IVar to see if it has been filled yet. Does not sleep to
 --   avoid rescheduling the checking thread (important for maintaining the
