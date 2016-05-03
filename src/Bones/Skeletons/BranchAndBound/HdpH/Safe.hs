@@ -124,10 +124,10 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
         sparkWithPrio one p $(mkClosure [| runAndFill (comp', resG) |])
         return $ p + 1
 
--- | Run a computation and place the result in the specified GIVar. TODO: Why
---   can't we use spawn here? It's to do with needing the GIVar to be seen by
---   the master node but I can't remember why (It looks like they are separate
---   IVars)
+-- | Run a computation and place the result in the specified GIVar. We can't use
+-- the standard spawn primitive here because this will give us the IVar's out of
+-- order? I'm not convinced this is actually true since the sequential thread
+-- wants to see them in the sequential order anyway.
 runAndFill :: (Closure (Par (Closure a)), GIVar (Closure a)) -> Thunk (Par ())
 runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 
