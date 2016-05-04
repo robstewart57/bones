@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns    #-}
 
 module Bones.Skeletons.BranchAndBound.HdpH.Safe
   (
@@ -80,9 +80,10 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
   spawnTasks taskList
 
   -- Handle all tasks in sequential order using the master thread
-  let fsl      = extractFunctions fs
+  let fsl      = extractBandBFunctions fs
+      toCl     = extractToCFunctions toC
       !updateB = updateBound (unClosure fs)
-  mapM_ (handleTask master fsl updateB) taskList
+  mapM_ (handleTask master fsl toCl updateB) taskList
 
   -- Global solution is a tuple (solution, bound). We only return the solution
   io $ unClosure . fst <$> readFromRegistry solutionKey
@@ -105,13 +106,13 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
       -- | Perform a task only if another worker hasn't already started working
       -- on this subtree. If they have then the master thead spins so that it
       -- doesn't get descheduled while waiting.
-      handleTask master fsl updateB task = do
+      handleTask master fsl toCl updateB task = do
         wasTaken <- probe (isStarted task)
         if wasTaken
          then spinGet (resultM task)
          else do
           put (isStarted task) unitClosure
-          safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) updateB fsl toC
+          safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) updateB fsl toCl
           put (resultM task) unitClosure
           return unitClosure
 
@@ -244,9 +245,10 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs, toC) =
     doStart <- unClosure <$> (spinGet =<< tryRPut taken unitClosure)
     if doStart
       then
-        let fsL      = extractFunctions fs
+        let fsL      = extractBandBFunctions fs
+            toCl     = extractToCFunctions toC
             !updateB = updateBound (unClosure fs)
-        in safeBranchAndBoundSkeletonChild (unClosure c) n (unClosure sol) (unClosure remaining) updateB fsL toC
+        in safeBranchAndBoundSkeletonChild (unClosure c) n (unClosure sol) (unClosure remaining) updateB fsL toCl
       else
         return unitClosure
 
@@ -257,9 +259,9 @@ safeBranchAndBoundSkeletonChild ::
     -> s
     -> Closure (UpdateBoundFn b)
     -> BAndBFunctionsL a b c s
-    -> Closure (ToCFns a b c s)
+    -> ToCFnsL a b c s
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild c parent sol remaining updateB fsl toC = do
+safeBranchAndBoundSkeletonChild c parent sol remaining updateB fsl toCL = do
     bnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
@@ -267,7 +269,7 @@ safeBranchAndBoundSkeletonChild c parent sol remaining updateB fsl toC = do
     case sp of
       NoPrune -> do
        (startingSol, _, remaining') <- stepL fsl c sol remaining
-       safeBranchAndBoundSkeletonExpand parent startingSol remaining' updateB fsl toC
+       safeBranchAndBoundSkeletonExpand parent startingSol remaining' updateB fsl toCL
        return unitClosure
       _       -> return unitClosure
 
@@ -284,11 +286,11 @@ safeBranchAndBoundSkeletonExpand ::
        -- ^ Higher order B&B functions
     -> BAndBFunctionsL a b c s
        -- ^ Pre-unclosured local function variants
-    -> Closure (ToCFns a b c s)
+    -> ToCFnsL a b c s
        -- ^ Explicit toClosure instances
     -> Par ()
        -- ^ Side-effect only function
-safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl toC = expand sol remaining
+safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl toCL = expand sol remaining
     where
       expand s r = generateChoicesL fsl s r >>= go s r
 
@@ -309,8 +311,8 @@ safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl toC = expand
             (newSol, newBnd, remaining') <- stepL fsl c sol remaining
 
             when (updateBoundL fsl newBnd bnd) $ do
-                let cSol = unClosure (toCa (unClosure toC)) newSol
-                    cBnd = unClosure (toCb (unClosure toC)) newBnd
+                let cSol = toCaL toCL newSol
+                    cBnd = toCbL toCL newBnd
                 updateLocalBounds cBnd (updateBoundL fsl)
                 notifyParentOfNewBound parent (cSol, cBnd) updateBnd
 
@@ -370,11 +372,6 @@ updateParentBoundT ((sol, bnd), updateB) = Thunk $ do
 
   return unitClosure
 
-extractFunctions :: Closure (BAndBFunctions a b c s) -> BAndBFunctionsL a b c s
-extractFunctions fns =
-  let BAndBFunctions !a !b !c !d !e = unClosure fns
-  in  BAndBFunctionsL (unClosure a) (unClosure b) (unClosure c) (unClosure d) (unClosure e)
-
 --------------------------------------------------------------------------------
 -- Skeleton making use of Dynamic work generation. NOT COMPLETE
 --------------------------------------------------------------------------------
@@ -418,7 +415,7 @@ searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
 
         fork $ taskGenerator topLevelChoices master spawnDepth fs taskQueue activeTasks
 
-        let fsl     = extractFunctions fs
+        let fsl     = extractBandBFunctions fs
             updateB = updateBound (unClosure fs)
         handleTasks master fsl updateB taskQueue
 

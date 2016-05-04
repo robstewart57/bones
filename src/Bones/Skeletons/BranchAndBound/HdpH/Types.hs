@@ -1,10 +1,11 @@
 {-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Bones.Skeletons.BranchAndBound.HdpH.Types where
 
 import           Control.DeepSeq       (NFData)
-import           Control.Parallel.HdpH (Closure, Par, mkClosure)
+import           Control.Parallel.HdpH (Closure, Par, mkClosure, unClosure)
 
 import           Data.Serialize        (Serialize)
 
@@ -39,6 +40,14 @@ data BAndBFunctionsL a b c s =
     , removeChoiceL    :: c ->  s-> Par s
     } deriving (Generic)
 
+data ToCFnsL a b c s =
+  ToCFnsL
+    { toCaL :: a -> Closure a
+    , toCbL :: b -> Closure b
+    , toCcL :: c -> Closure c
+    , toCsL :: s -> Closure s
+    } deriving (Generic)
+
 instance NFData (BAndBFunctions a b c s)
 instance Serialize (BAndBFunctions a b c s)
 
@@ -50,3 +59,16 @@ data PruneType = NoPrune | Prune | PruneLevel
 unitClosure :: Closure ()
 {-#INLINE unitClosure #-}
 unitClosure = $(mkClosure [| () |])
+
+--------------------------------------------------------------------------------
+-- Type Utility Functions
+--------------------------------------------------------------------------------
+extractBandBFunctions :: Closure (BAndBFunctions a b c s) -> BAndBFunctionsL a b c s
+extractBandBFunctions fns =
+  let BAndBFunctions !a !b !c !d !e = unClosure fns
+  in  BAndBFunctionsL (unClosure a) (unClosure b) (unClosure c) (unClosure d) (unClosure e)
+
+extractToCFunctions :: Closure (ToCFns a b c s) -> ToCFnsL a b c s
+extractToCFunctions fns =
+  let ToCFns !a !b !c !d = unClosure fns
+  in  ToCFnsL (unClosure a) (unClosure b) (unClosure c) (unClosure d)
