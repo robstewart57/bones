@@ -13,27 +13,37 @@ import           GHC.Generics          (Generic)
 -- Functions required to specify a B&B computation
 data BAndBFunctions a b c s =
   BAndBFunctions
-    { generateChoices :: Closure (Closure a -> Closure s -> Par [Closure c])
-    , shouldPrune     :: Closure (Closure c -> Closure b -> Closure a -> Closure s -> Par PruneType)
-    , updateBound     :: Closure (Closure b -> Closure b -> Bool)
-    , step            :: Closure (Closure c -> Closure a -> Closure s
-                          -> Par (Closure a, Closure b, Closure s))
-    , removeChoice    :: Closure (Closure c -> Closure s-> Par (Closure s))
+    { generateChoices :: Closure (a -> s -> Par [c])
+    , shouldPrune     :: Closure (c -> b -> a -> s -> Par PruneType)
+    , updateBound     :: Closure (b -> b -> Bool)
+    , step            :: Closure (c -> a -> s -> Par (a, b, s))
+    , removeChoice    :: Closure (c -> s-> Par s)
     } deriving (Generic)
 
-type UpdateBoundFn b = Closure b -> Closure b -> Bool
+data ToCFns a b c s =
+  ToCFns
+    { toCa :: Closure (a -> Closure a)
+    , toCb :: Closure (b -> Closure b)
+    , toCc :: Closure (c -> Closure c)
+    , toCs :: Closure (s -> Closure s)
+    } deriving (Generic)
+
+type UpdateBoundFn b = b -> b -> Bool
 
 data BAndBFunctionsL a b c s =
   BAndBFunctionsL
-    { generateChoicesL :: Closure a -> Closure s -> Par [Closure c]
-    , shouldPruneL     :: Closure c -> Closure b -> Closure a -> Closure s -> Par PruneType
-    , updateBoundL     :: Closure b -> Closure b -> Bool
-    , stepL            :: Closure c -> Closure a -> Closure s -> Par (Closure a, Closure b, Closure s)
-    , removeChoiceL    :: Closure c -> Closure s-> Par (Closure s)
+    { generateChoicesL :: a ->  s -> Par [ c]
+    , shouldPruneL     :: c ->  b -> a -> s -> Par PruneType
+    , updateBoundL     :: b ->  b -> Bool
+    , stepL            :: c ->  a -> s -> Par ( a,  b,  s)
+    , removeChoiceL    :: c ->  s-> Par s
     } deriving (Generic)
 
 instance NFData (BAndBFunctions a b c s)
 instance Serialize (BAndBFunctions a b c s)
+
+instance NFData (ToCFns a b c s)
+instance Serialize (ToCFns a b c s)
 
 data PruneType = NoPrune | Prune | PruneLevel
 
