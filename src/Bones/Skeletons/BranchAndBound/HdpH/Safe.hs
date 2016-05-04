@@ -90,7 +90,8 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
     where
       -- Ensure the global state is configured on all nodes.
       initialiseRegistries nodes = do
-        io $ addToRegistry solutionKey (startingSol, bnd)
+        -- Bounds are kept unClosured for faster reads but solutions are kept closured
+        io $ addToRegistry solutionKey (unClosure (toCa (unClosure toC)) startingSol, bnd)
         let bnd' = unClosure (toCb (unClosure toC)) bnd
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd' |]) n
 

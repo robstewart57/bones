@@ -23,7 +23,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
   , userStateKey
   ) where
 
-import           Control.Parallel.HdpH (Closure, Thunk(..), Par, io)
+import           Control.Parallel.HdpH (Closure, Thunk(..), Par, io, unClosure)
 
 import           Data.IORef      (IORef, atomicWriteIORef, newIORef, readIORef)
 
@@ -91,7 +91,7 @@ userStateKey :: Int
 userStateKey = 3
 
 initRegistryBound :: Closure a -> Thunk (Par ())
-initRegistryBound bnd = Thunk $ io (addToRegistry boundKey bnd)
+initRegistryBound bnd = Thunk $ io (addToRegistry boundKey (unClosure bnd))
 
 addGlobalSearchSpaceToRegistry :: IORef a -> IO ()
 addGlobalSearchSpaceToRegistry = addRefToRegistry searchSpaceKey
