@@ -59,7 +59,7 @@ data Task c a s = Task
 -- (1) Never slower than a sequential run of the same skeleton
 -- (2) Adding more workers does not slow down the computation
 -- (3) Results should have low variance allowing them to be reproducible
-search :: Bool                              -- ^ Should discrepancy search be used? (else spawn priorities linearly)
+search :: Bool                              -- ^ Should discrepancy search be used? Else spawn tasks linearly, left to right.
        -> Int                               -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
        -> Closure a                         -- ^ Initial solution closure
        -> Closure s                         -- ^ Initial search-space closure
@@ -86,7 +86,7 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
   -- Global solution is a tuple (solution, bound). We only return the solution
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
-      -- | Ensure the global state is configured on all nodes.
+      -- Ensure the global state is configured on all nodes.
       initialiseRegistries nodes = do
         io $ addToRegistry solutionKey (startingSol, bnd)
         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
@@ -125,10 +125,10 @@ search diversify spawnDepth startingSol startingSpace bnd fs = do
         sparkWithPrio one p $(mkClosure [| runAndFill (comp', resG) |])
         return $ p + 1
 
--- | Run a computation and place the result in the specified GIVar. We can't use
--- the standard spawn primitive here because this will give us the IVar's out of
--- order? I'm not convinced this is actually true since the sequential thread
--- wants to see them in the sequential order anyway.
+-- | Run a computation and place the result in the specified GIVar. We can
+--   alternatively use the HdpH /spawn/ primitive but this gives us more
+--   flexibility in the scheduling methods (since multiple tasks can look at the
+--   result).
 runAndFill :: (Closure (Par (Closure a)), GIVar (Closure a)) -> Thunk (Par ())
 runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 
