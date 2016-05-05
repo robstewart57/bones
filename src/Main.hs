@@ -44,8 +44,8 @@ import           GraphBitArray
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBitSetArray (sequentialBitSetArrayMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
-import           Solvers.BonesSolver (findSolution, randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
-                                      safeSkeletonIntSetDynamic, safeSkeletonBitSetArray)
+import           Solvers.BonesSolver ({- findSolution, -} randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
+                                      {- safeSkeletonIntSetDynamic, -} safeSkeletonBitSetArray)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
@@ -69,7 +69,7 @@ diffTime factor (TimeSpec s1 n1) (TimeSpec s2 n2) = fromIntegral (t2 - t1)
                                                     fromIntegral factor
   where t1 = (fromIntegral s1 * 10 ^ 9) + fromIntegral n1
         t2 = (fromIntegral s2 * 10 ^ 9) + fromIntegral n2
-  
+
 
 diffTimeMs :: TimeSpec -> TimeSpec -> Double
 diffTimeMs = diffTime (10 ^ 6)
@@ -92,7 +92,7 @@ data Algorithm = Sequential
                | SequentialBitSetArray
                | RandomWSIntSet
                | RandomWSBitArray
-               | FindSolution
+             -- | FindSolution
                | SafeSkeletonIntSet
                | SafeSkeletonIntSetDynamic
                | SafeSkeletonBitArray
@@ -317,6 +317,7 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitSetArray n depth' discrepancySearch)
+    {-
     FindSolution -> do
       solSize' <- case solSize of
                      Nothing -> error "You must provide the target size (-s) argument\
@@ -333,6 +334,7 @@ main = do
 
       let depth'  = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (findSolution n depth' solSize')
+    -}
 
   case res of
     Nothing -> exitSuccess

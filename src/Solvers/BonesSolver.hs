@@ -7,9 +7,9 @@ module Solvers.BonesSolver (
     randomWSIntSet
   , randomWSBitArray
   , safeSkeletonIntSet
-  , safeSkeletonIntSetDynamic
+  -- , safeSkeletonIntSetDynamic
   , safeSkeletonBitSetArray
-  , findSolution
+  -- , findSolution
   , declareStatic) where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
@@ -112,7 +112,7 @@ shouldUpdateBound new old =
       old' = unClosure old
   in new' > old'
 
-shouldPruneF :: Closure (Vertex, Int)
+{- shouldPruneF :: Closure (Vertex, Int)
             -> Closure Int
             -> Closure [Vertex]
             -> Closure (Int, IBitSetArray)
@@ -132,6 +132,7 @@ isTarget new old =
   let new' = unClosure new
       old' = unClosure old
   in new' == old'
+-}
 
 step :: Closure (Vertex, Int)
      -> Closure [Vertex]
@@ -273,6 +274,7 @@ safeSkeletonIntSet g depth diversify = do
 
   return (vs, length vs)
 
+{-
 safeSkeletonIntSetDynamic :: Graph -> Int -> Int -> Par Clique
 safeSkeletonIntSetDynamic g depth ntasks = do
   vs <- Safe.searchDynamic
@@ -289,6 +291,7 @@ safeSkeletonIntSetDynamic g depth ntasks = do
           $(mkClosure [| removeFromSpace |])))
 
   return (vs, length vs)
+-}
 
 safeSkeletonBitSetArray :: Int -> Int -> Bool -> Par Clique
 safeSkeletonBitSetArray nVertices depth diversify = do
@@ -314,6 +317,7 @@ safeSkeletonBitSetArray nVertices depth diversify = do
           forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
           return s
 
+{-
 findSolution :: Int -> Int -> Int -> Par Clique
 findSolution nVertices depth targetSize = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
@@ -336,6 +340,7 @@ findSolution nVertices depth targetSize = do
           s <- ArrayVertexSet.new nVertices
           forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
           return s
+-}
 
 --------------------------------------------------------------------------------
 -- Explicit ToClousre Instances (needed for performance)
