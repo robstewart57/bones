@@ -18,7 +18,6 @@ executable bones-knapsack
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -O2
   other-modules:       Knapsack
-                     , KnapsackArray
   build-depends:       base
                      , array                >= 0.5.1 && < 0.5.2
                      , bitSetArray          == 0.1.0.0
