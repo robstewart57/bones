@@ -30,7 +30,7 @@ import qualified Knapsack as KL
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
--- import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
 -- Simple program to solve Knapsack instances using the bones skeleton library.
 
@@ -39,8 +39,7 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 --------------------------------------------------------------------------------
 
 data Algorithm = SafeList
-               -- | BroadcastList
-               -- | SafeBitArray
+               | BroadcastList
                deriving (Read, Show)
 
 data Options = Options
@@ -191,26 +190,14 @@ main = do
             Just (KL.Solution _ is prof weig) ->
               return (Just ((map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig)), t)
 
-    -- BroadcastList -> do
-    --   register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
-    --   let is = map (\(a,b,c) -> (KL.Item a b c)) items'
-    --   (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
-    --   case sol of
-    --         Nothing -> return (Nothing, t)
-    --         Just (KL.Solution _ is prof weig) ->
-    --           return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
-
-    -- SafeBitArray -> do
-    --   register $ HdpH.declareStatic <> KA.declareStatic
-
-    --   let globalItems = itemsToArrays items' (length items')
-
-    --   (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KA.safeSkeleton globalItems (length items') cap depth' True)
-    --   case sol of
-    --     Nothing -> return (Nothing, t)
-    --     Just (KA.Solution is prof weig) -> do
-    --       is' <- A.fromImmutable is >>= A.toList
-    --       return (Just (arrayToItems is' globalItems, toInteger prof, toInteger weig), t)
+    BroadcastList -> do
+      register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
+      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
+      case sol of
+            Nothing -> return (Nothing, t)
+            Just (KL.Solution _ is prof weig) ->
+              return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
 
   case s of
     Nothing -> return ()
@@ -225,15 +212,3 @@ main = do
 
       putStrLn $ "Solution: " ++ show  (map (\(_,b,c) -> (b,c)) sol)
       putStrLn $ "computeTime: " ++ show tm ++ " s"
-
-  -- where
-  --   itemsToArrays is sz =
-  --     let ps = U.array (1, sz) (map (\(id,p,w) -> (id, fromIntegral p)) is)
-  --         ws = U.array (1, sz) (map (\(id,p,w) -> (id, fromIntegral w)) is)
-  --     in KA.Items ps ws
-
-  --   arrayToItems is items =
-  --     map (\i -> let p = KA.profit items i
-  --                    w = KA.weight items i
-  --                in (0 :: Int, toInteger p, toInteger w)
-  --         ) is

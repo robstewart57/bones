@@ -17,7 +17,7 @@ import Control.Parallel.HdpH hiding (declareStatic)
 import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions), PruneType(..), ToCFns(..))
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
--- import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
 import Control.DeepSeq (NFData)
 
@@ -56,21 +56,26 @@ skeletonSafe items capacity depth diversify = do
       $(mkClosure [| toClosureItem |])
       $(mkClosure [| toClosureItemList |])))
 
--- skeletonBroadcast :: [Item] -> Integer -> Int -> Bool -> Par Solution
--- skeletonBroadcast items capacity depth diversify = do
---   io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+skeletonBroadcast :: [Item] -> Integer -> Int -> Bool -> Par Solution
+skeletonBroadcast items capacity depth diversify = do
+  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
 
---   Broadcast.search
---     depth
---     (toClosureSolution (Solution capacity [] 0 0))
---     (toClosureItemList items)
---     (toClosureInteger (0 :: Integer))
---     (toClosure (BAndBFunctions
---       $(mkClosure [| generateChoices |])
---       $(mkClosure [| shouldPrune |])
---       $(mkClosure [| shouldUpdateBound |])
---       $(mkClosure [| step |])
---       $(mkClosure [| removeChoice |])))
+  Broadcast.search
+    depth
+    (Solution capacity [] 0 0)
+    items
+    (0 :: Integer)
+    (toClosure (BAndBFunctions
+      $(mkClosure [| generateChoices |])
+      $(mkClosure [| shouldPrune |])
+      $(mkClosure [| shouldUpdateBound |])
+      $(mkClosure [| step |])
+      $(mkClosure [| removeChoice |])))
+    (toClosure (ToCFns
+      $(mkClosure [| toClosureSolution |])
+      $(mkClosure [| toClosureInteger |])
+      $(mkClosure [| toClosureItem |])
+      $(mkClosure [| toClosureItemList |])))
 
 --------------------------------------------------------------------------------
 -- Skeleton Functions
