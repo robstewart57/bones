@@ -6,7 +6,7 @@
 module Knapsack
 (
     skeletonSafe
-  , skeletonBroadcast
+  --, skeletonBroadcast
   , declareStatic
   , Solution(..)
   , Item(..)
@@ -14,10 +14,10 @@ module Knapsack
 
 import Control.Parallel.HdpH hiding (declareStatic)
 
-import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions), PruneType(..))
+import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions), PruneType(..), ToCFns(..))
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
 import Control.DeepSeq (NFData)
 
@@ -26,8 +26,8 @@ import GHC.Generics (Generic)
 import Data.Serialize (Serialize)
 import Data.IORef (newIORef)
 
-data Solution = Solution !Integer ![Item] !Integer !Integer deriving (Generic)
-data Item = Item {-# UNPACK #-} !Int !Integer !Integer deriving (Generic)
+data Solution = Solution !Integer ![Item] !Integer !Integer deriving (Generic, Show)
+data Item = Item {-# UNPACK #-} !Int !Integer !Integer deriving (Generic, Show)
 
 instance Serialize Solution where
 instance Serialize Item where
@@ -41,31 +41,36 @@ skeletonSafe items capacity depth diversify = do
   Safe.search
     diversify
     depth
-    (toClosureSolution (Solution capacity [] 0 0))
-    (toClosureItemList items)
-    (toClosureInteger (0 :: Integer))
+    (Solution capacity [] 0 0)
+    items
+    (0 :: Integer)
     (toClosure (BAndBFunctions
       $(mkClosure [| generateChoices |])
       $(mkClosure [| shouldPrune |])
       $(mkClosure [| shouldUpdateBound |])
       $(mkClosure [| step |])
       $(mkClosure [| removeChoice |])))
+    (toClosure (ToCFns
+      $(mkClosure [| toClosureSolution |])
+      $(mkClosure [| toClosureInteger |])
+      $(mkClosure [| toClosureItem |])
+      $(mkClosure [| toClosureItemList |])))
 
-skeletonBroadcast :: [Item] -> Integer -> Int -> Bool -> Par Solution
-skeletonBroadcast items capacity depth diversify = do
-  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+-- skeletonBroadcast :: [Item] -> Integer -> Int -> Bool -> Par Solution
+-- skeletonBroadcast items capacity depth diversify = do
+--   io $ newIORef items >>= addGlobalSearchSpaceToRegistry
 
-  Broadcast.search
-    depth
-    (toClosureSolution (Solution capacity [] 0 0))
-    (toClosureItemList items)
-    (toClosureInteger (0 :: Integer))
-    (toClosure (BAndBFunctions
-      $(mkClosure [| generateChoices |])
-      $(mkClosure [| shouldPrune |])
-      $(mkClosure [| shouldUpdateBound |])
-      $(mkClosure [| step |])
-      $(mkClosure [| removeChoice |])))
+--   Broadcast.search
+--     depth
+--     (toClosureSolution (Solution capacity [] 0 0))
+--     (toClosureItemList items)
+--     (toClosureInteger (0 :: Integer))
+--     (toClosure (BAndBFunctions
+--       $(mkClosure [| generateChoices |])
+--       $(mkClosure [| shouldPrune |])
+--       $(mkClosure [| shouldUpdateBound |])
+--       $(mkClosure [| step |])
+--       $(mkClosure [| removeChoice |])))
 
 --------------------------------------------------------------------------------
 -- Skeleton Functions
@@ -79,26 +84,18 @@ skeletonBroadcast items capacity depth diversify = do
 --  removeChoice    :: Closure (Closure c -> Closure s-> Closure s)
 
 -- Potential choices is simply the list of un-chosen items
-generateChoices :: Closure Solution -> Closure [Item] -> Par [Closure Item]
-generateChoices cSol cRemaining = do
-  let (Solution cap _  _ curWeight) = unClosure cSol
-      remaining                 = unClosure cRemaining
-
+generateChoices :: Solution -> [Item] -> Par [Item]
+generateChoices (Solution cap _ _ curWeight) remaining =
   -- Could also combine these as a fold, but it's easier to read this way.
-  return $ map toClosureItem $ filter (\(Item _ _ w) -> curWeight + w <= cap) remaining
+  return $ filter (\(Item _ _ w) -> curWeight + w <= cap) remaining
 
 -- Calculate the bounds function
-shouldPrune :: Closure Item
-            -> Closure Integer
-            -> Closure Solution
-            -> Closure [Item]
+shouldPrune :: Item
+            -> Integer
+            -> Solution
+            -> [Item]
             -> Par PruneType
-shouldPrune i' bnd' sol' rem' = do
-  let (Item _ ip iw)   = unClosure i'
-      (Solution cap _ p w) = unClosure sol'
-      bnd              = unClosure bnd'
-      r                = unClosure rem'
-
+shouldPrune (Item _ ip iw) bnd (Solution cap _ p w) r =
   if fromIntegral bnd > ub (p + ip) (w + iw) cap r then
     return PruneLevel
   else
@@ -115,29 +112,25 @@ shouldPrune i' bnd' sol' rem' = do
     divf a b = fromIntegral a / fromIntegral b
 
 
-shouldUpdateBound :: Closure Integer -> Closure Integer -> Bool
-shouldUpdateBound x y = unClosure x > unClosure y
+shouldUpdateBound :: Integer -> Integer -> Bool
+shouldUpdateBound x y = x > y
 
-step :: Closure Item -> Closure Solution -> Closure [Item]
-     -> Par (Closure Solution, Closure Integer, Closure [Item])
-step i s r = do
-  let i'@(Item _ np nw) = unClosure i
-      (Solution cap is p w) = unClosure s
-
+step :: Item -> Solution -> [Item] -> Par (Solution, Integer, [Item])
+step i@(Item _ np nw) (Solution cap is p w) r = do
   rm <- removeChoice i r
 
-  return (toClosureSolution (Solution cap (i':is) (p + np) (w + nw)), toClosureInteger (p + np), rm)
+  return (Solution cap (i:is) (p + np) (w + nw), p + np, rm)
 
-removeChoice :: Closure Item -> Closure [Item] -> Par (Closure [Item])
-removeChoice i its =
-  let (Item v _ _) = unClosure i
-      is = filter (\(Item n _ _) -> v /= n) (unClosure its)
-  in return $ toClosureItemList is
+removeChoice :: Item -> [Item] -> Par [Item]
+removeChoice (Item v _ _ ) its = return $ filter (\(Item n _ _) -> v /= n) its
 
 --------------------------------------------------------------------------------
 -- Closure Instances
 --------------------------------------------------------------------------------
 instance ToClosure (BAndBFunctions Solution Integer Item [Item]) where
+  locToClosure = $(here)
+
+instance ToClosure (ToCFns Solution Integer Item [Item]) where
   locToClosure = $(here)
 
 --------------------------------------------------------------------------------
@@ -172,6 +165,7 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Integer Item [Item]))
+  , declare (staticToClosure :: StaticToClosure (ToCFns Solution Integer Item [Item]))
 
   -- B&B Functions
   , declare $(static 'generateChoices)
@@ -181,9 +175,13 @@ declareStatic = mconcat
   , declare $(static 'removeChoice)
 
   -- Explicit toClosure
+  , declare $(static 'toClosureInteger)
   , declare $(static 'toClosureInteger_abs)
+  , declare $(static 'toClosureItem)
   , declare $(static 'toClosureItem_abs)
+  , declare $(static 'toClosureItemList)
   , declare $(static 'toClosureItemList_abs)
+  , declare $(static 'toClosureSolution)
   , declare $(static 'toClosureSolution_abs)
 
   , Safe.declareStatic
