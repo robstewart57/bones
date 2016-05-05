@@ -66,51 +66,51 @@ instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray))
 --------------------------------------------------------------------------------
 -- Max Clique Skeleton Functions
 --------------------------------------------------------------------------------
-generateChoices  :: Closure [Vertex]
-                 -> Closure VertexSet
-                 -> Par [Closure (Vertex, Int)]
-generateChoices cur remaining = do
+generateChoices  :: [Vertex]
+                 -> VertexSet
+                 -> Par [(Vertex, Int)]
+generateChoices cur vs = do
   g <- io $ readFromRegistry searchSpaceKey
-  let vs = unClosure remaining
   if VertexSet.null vs
     then return []
-    else return $ map toClosureColourOrder $ colourOrder g vs
+    else return $ colourOrder g vs
 
-shouldPrune :: Closure (Vertex, Int)
-            -> Closure Int
-            -> Closure [Vertex]
-            -> Closure VertexSet
+generateChoicesBitSetArray :: [Vertex]
+                           -> (Int,IBitSetArray)
+                           -> Par [(Vertex, Int)]
+generateChoicesBitSetArray cur (s, vs) = do
+  (_, gC) <- io $ readFromRegistry searchSpaceKey
+  if s == 0
+    then return []
+    else do
+      vs' <- io $ ArrayVertexSet.fromImmutable vs
+      io $ colourOrderBitSetArray gC vs' s
+
+shouldPrune :: (Vertex, Int)
+            -> Int
+            -> [Vertex]
+            -> VertexSet
             -> Par PruneType
-shouldPrune col bnd sol _ =
-  let (v,c) = unClosure col
-      b     = unClosure bnd
-      sol'  = unClosure sol
-  in
-  if length sol' + c <= b then
+shouldPrune (v, c) bnd sol _ =
+  if length sol + c <= bnd then
     return PruneLevel
   else
     return NoPrune
 
-shouldPruneBitSetArray :: Closure (Vertex, Int)
-                       -> Closure Int
-                       -> Closure [Vertex]
-                       -> Closure (Int, IBitSetArray)
+-- TODO: Can I merge this with the one above?
+shouldPruneBitSetArray :: (Vertex, Int)
+                       -> Int
+                       -> [Vertex]
+                       -> (Int, IBitSetArray)
                        -> Par PruneType
-shouldPruneBitSetArray col bnd sol _ =
-  let (v,c) = unClosure col
-      b     = unClosure bnd
-      sol'  = unClosure sol
-  in
-  if length sol' + c <= b then
+shouldPruneBitSetArray (v, c) bnd sol _ =
+  if length sol + c <= bnd then
     return PruneLevel
   else
     return NoPrune
 
-shouldUpdateBound :: Closure Int -> Closure Int -> Bool
-shouldUpdateBound new old =
-  let new' = unClosure new
-      old' = unClosure old
-  in new' > old'
+shouldUpdateBound :: Int -> Int -> Bool
+shouldUpdateBound new old = new > old
 
 {- shouldPruneF :: Closure (Vertex, Int)
             -> Closure Int
@@ -134,85 +134,53 @@ isTarget new old =
   in new' == old'
 -}
 
-step :: Closure (Vertex, Int)
-     -> Closure [Vertex]
-     -> Closure VertexSet
-     -> Par (Closure [Vertex], Closure Int, Closure VertexSet)
-step c sol vs = do
+step :: (Vertex, Int)
+     -> [Vertex]
+     -> VertexSet
+     -> Par ([Vertex], Int, VertexSet)
+step (v, c) sol vs = do
   searchSpace <- io $ readFromRegistry searchSpaceKey
 
-  let (v,col) = unClosure c
-      sol'    = unClosure sol
-      vs'     = unClosure vs
-      newSol  = v:sol'
-      newRemaining = VertexSet.intersection vs' $ adjacentG searchSpace v
+  let newSol  = v : sol
+      newRemaining = VertexSet.intersection vs $ adjacentG searchSpace v
 
-  return ( toClosureListVertex newSol
-         , toClosureInt (length newSol)
-         , toClosureVertexSet newRemaining
-         )
+  return (newSol, length newSol, newRemaining)
 
-removeFromSpace :: Closure (Vertex,Int)
-                -> Closure VertexSet
-                -> Par (Closure VertexSet)
-removeFromSpace c vs =
-  let (v, col) = unClosure c
-      vs'      = unClosure vs
-  in
-  return (toClosureVertexSet $ VertexSet.delete v vs')
-
-generateChoicesBitSetArray :: Closure [Vertex]
-                        -> Closure (Int,IBitSetArray)
-                        -> Par [Closure (Vertex, Int)]
-generateChoicesBitSetArray cur remaining = do
-  (_, gC) <- io $ readFromRegistry searchSpaceKey
-
-  let (s, vs) = unClosure remaining
-
-  if s == 0
-    then return []
-    else do
-      vs' <- io $ ArrayVertexSet.fromImmutable vs
-      cs  <- io $ colourOrderBitSetArray gC vs' s
-      return $ map toClosureColourOrder cs
-
-stepBitSetArray :: Closure (Vertex, Int)
-             -> Closure [Vertex]
-             -> Closure (Int, IBitSetArray)
-             -> Par (Closure [Vertex], Closure Int, Closure (Int,IBitSetArray))
-stepBitSetArray c sol vs = do
+stepBitSetArray :: (Vertex, Int)
+                -> [Vertex]
+                -> (Int, IBitSetArray)
+                -> Par ([Vertex], Int, (Int,IBitSetArray))
+stepBitSetArray (v, c) sol (s, vs) = do
   (g, _) <- io $ readFromRegistry searchSpaceKey
 
-  let (v,col) = unClosure c
-      sol'    = unClosure sol
-      (s, vs')= unClosure vs
-      newSol  = v:sol'
+  let newSol  = v:sol
 
-  vs'' <- io $ ArrayVertexSet.fromImmutable vs'
-  (newVs, pc)  <- io $ intersectAdjacency vs'' g v -- Might not need copies now that removeChoice copies everything
-  newRemaining <- io $ ArrayVertexSet.makeImmutable newVs
+  vs'          <- io $ ArrayVertexSet.fromImmutable vs
+  (newVs, pc)  <- io $ intersectAdjacency vs' g v
+  rem        <- io $ ArrayVertexSet.makeImmutable newVs
 
-  return ( toClosureListVertex newSol
-         , toClosureInt (length newSol)
-         , toClosureIBitSetArray (pc, newRemaining)
-         )
+  return (newSol, length newSol, (pc, rem))
+
+removeFromSpace :: (Vertex,Int)
+                -> VertexSet
+                -> Par VertexSet
+removeFromSpace (v, c) vs = return $ VertexSet.delete v vs
+
 
 -- Hmm use unsafePerformIO? Maybe moving to ST would be easier, but how?
 -- Just change the skeleton for now?
-removeFromBitSetArray :: Closure (Vertex,Int)
-                   -> Closure (Int, IBitSetArray)
-                   -> Par (Closure (Int, IBitSetArray))
-removeFromBitSetArray c vs = do
-  let (v, col) = unClosure c
-      (s,vs')      = unClosure vs
-
-  -- This needs to be immutable for generating top level tasks.
-  mv <- io $ ArrayVertexSet.fromImmutable vs'
+removeFromBitSetArray :: (Vertex,Int)
+                      -> (Int, IBitSetArray)
+                      -> Par (Int, IBitSetArray)
+removeFromBitSetArray (v, c) (s, vs) = do
+  -- We need copies to maintain sets when we backtrack
+  mv <- io $ ArrayVertexSet.fromImmutable vs
   vc <- io $ ArrayVertexSet.copy mv
+
   io $ ArrayVertexSet.remove v vc
   newA <- io $ ArrayVertexSet.makeImmutable vc
 
-  return (toClosureIBitSetArray (s-1, newA))
+  return (s-1, newA)
 
 --------------------------------------------------------------------------------
 -- Calling functions
@@ -399,8 +367,8 @@ declareStatic = mconcat
   , declare $(static 'removeFromBitSetArray)
 
   -- Find Solution
-  , declare $(static 'shouldPruneF)
-  , declare $(static 'isTarget)
+  -- , declare $(static 'shouldPruneF)
+  -- , declare $(static 'isTarget)
 
   -- Explicit toClosure
   , declare $(static 'toClosureInt_abs)
