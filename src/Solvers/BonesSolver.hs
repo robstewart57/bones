@@ -43,7 +43,7 @@ import           System.IO.Unsafe      (unsafePerformIO)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe      as Safe
 import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
-                                                           , PruneType(..))
+                                                           , PruneType(..), ToCFns(..))
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
@@ -60,7 +60,13 @@ instance ToClosure (Int, IBitSetArray) where locToClosure = $(here)
 instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet) where
   locToClosure = $(here)
 
+instance ToClosure (ToCFns [Vertex] Int (Vertex,Int) VertexSet) where
+  locToClosure = $(here)
+
 instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray)) where
+  locToClosure = $(here)
+
+instance ToClosure (ToCFns [Vertex] Int (Vertex,Int) (Int,IBitSetArray)) where
   locToClosure = $(here)
 
 --------------------------------------------------------------------------------
@@ -190,15 +196,20 @@ randomWSIntSet :: Graph -> Int -> Par Clique
 randomWSIntSet g depth = do
   vs <- Broadcast.search
         depth
-        (toClosureListVertex ([] :: [Vertex]))
-        (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
-        (toClosureInt (0 :: Int))
+        ([] :: [Vertex])
+        (VertexSet.fromAscList $ verticesG g)
+        (0 :: Int)
         (toClosure (BAndBFunctions
           $(mkClosure [| generateChoices |])
           $(mkClosure [| shouldPrune |])
           $(mkClosure [| shouldUpdateBound |])
           $(mkClosure [| step |])
           $(mkClosure [| removeFromSpace |])))
+        (toClosure (ToCFns
+          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureInt |])
+          $(mkClosure [| toClosureColourOrder |])
+          $(mkClosure [| toClosureVertexSet|])))
 
   return (vs, length vs)
 
@@ -208,15 +219,20 @@ randomWSBitArray nVertices depth = do
 
   vs <- Broadcast.search
         depth
-        (toClosureListVertex ([] :: [Vertex]))
-        (toClosureIBitSetArray (nVertices, initSet))
-        (toClosureInt (0 :: Int))
+        ([] :: [Vertex])
+        (nVertices, initSet)
+        (0 :: Int)
         (toClosure (BAndBFunctions
           $(mkClosure [| generateChoicesBitSetArray |])
           $(mkClosure [| shouldPruneBitSetArray |])
           $(mkClosure [| shouldUpdateBound |])
           $(mkClosure [| stepBitSetArray |])
           $(mkClosure [| removeFromBitSetArray |])))
+        (toClosure (ToCFns
+          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureInt |])
+          $(mkClosure [| toClosureColourOrder  |])
+          $(mkClosure [| toClosureIBitSetArray |])))
 
   return (vs, length vs)
 
@@ -230,15 +246,20 @@ safeSkeletonIntSet g depth diversify = do
   vs <- Safe.search
         diversify
         depth
-        (toClosureListVertex ([] :: [Vertex]))
-        (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
-        (toClosureInt (0 :: Int))
+        ([] :: [Vertex])
+        (VertexSet.fromAscList $ verticesG g)
+        (0 :: Int)
         (toClosure (BAndBFunctions
           $(mkClosure [| generateChoices |])
           $(mkClosure [| shouldPrune |])
           $(mkClosure [| shouldUpdateBound |])
           $(mkClosure [| step |])
           $(mkClosure [| removeFromSpace |])))
+        (toClosure (ToCFns
+          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureInt |])
+          $(mkClosure [| toClosureColourOrder |])
+          $(mkClosure [| toClosureVertexSet|])))
 
   return (vs, length vs)
 
@@ -268,15 +289,20 @@ safeSkeletonBitSetArray nVertices depth diversify = do
   vs <- Safe.search
         diversify
         depth
-        (toClosureListVertex ([] :: [Vertex]))
-        (toClosureIBitSetArray (nVertices, initSet))
-        (toClosureInt (0 :: Int))
+        ([] :: [Vertex])
+        (nVertices, initSet)
+        (0 :: Int)
         (toClosure (BAndBFunctions
           $(mkClosure [| generateChoicesBitSetArray |])
           $(mkClosure [| shouldPruneBitSetArray |])
           $(mkClosure [| shouldUpdateBound |])
           $(mkClosure [| stepBitSetArray |])
           $(mkClosure [| removeFromBitSetArray |])))
+        (toClosure (ToCFns
+          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureInt |])
+          $(mkClosure [| toClosureColourOrder  |])
+          $(mkClosure [| toClosureIBitSetArray |])))
 
   return (vs, length vs)
 
@@ -352,7 +378,9 @@ declareStatic = mconcat
   , declare (staticToClosure :: StaticToClosure VertexSet)
   , declare (staticToClosure :: StaticToClosure (Vertex, Int))
   , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet))
+  , declare (staticToClosure :: StaticToClosure (ToCFns [Vertex] Int (Vertex,Int) VertexSet))
   , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray)))
+  , declare (staticToClosure :: StaticToClosure (ToCFns [Vertex] Int (Vertex,Int) (Int,IBitSetArray)))
 
   -- B&B Functions
   , declare $(static 'generateChoices)
@@ -371,9 +399,18 @@ declareStatic = mconcat
   -- , declare $(static 'isTarget)
 
   -- Explicit toClosure
+  , declare $(static 'toClosureInt)
   , declare $(static 'toClosureInt_abs)
+
+  , declare $(static 'toClosureListVertex)
   , declare $(static 'toClosureListVertex_abs)
+
+  , declare $(static 'toClosureVertexSet)
   , declare $(static 'toClosureVertexSet_abs)
+
+  , declare $(static 'toClosureColourOrder)
   , declare $(static 'toClosureColourOrder_abs)
+
   , declare $(static 'toClosureIBitSetArray_abs)
+  , declare $(static 'toClosureIBitSetArray)
   ]

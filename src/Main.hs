@@ -94,7 +94,7 @@ data Algorithm = Sequential
                | RandomWSBitArray
              -- | FindSolution
                | SafeSkeletonIntSet
-               | SafeSkeletonIntSetDynamic
+             -- | SafeSkeletonIntSetDynamic
                | SafeSkeletonBitArray
               deriving (Read, Show)
 
@@ -155,7 +155,7 @@ optionParser = Options
                                   ," RandomWSIntSet,"
                                   ," RandomWSBitArray,"
                                   ," SafeSkeletonIntSet,"
-                                  ," SafeSkeletonIntSetDynamic,"
+                                  -- ," SafeSkeletonIntSetDynamic,"
                                   ," SafeSkeletonBitArray]"]
 
 optsParser = info (helper <*> optionParser)
@@ -291,6 +291,7 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSet bigG depth' discrepancySearch)
+  {-
     SafeSkeletonIntSetDynamic -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
@@ -304,6 +305,7 @@ main = do
       if ntasks == 0
         then error "Must provide the NumDynamicTasks (-t) argument when using dynamic work generation"
         else timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSetDynamic bigG depth' ntasks)
+   -}
     SafeSkeletonBitArray -> do
       register (Main.declareStatic <> Safe.declareStatic)
 
