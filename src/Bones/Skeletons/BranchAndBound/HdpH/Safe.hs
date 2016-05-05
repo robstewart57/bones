@@ -21,6 +21,8 @@ import           Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, re
 import           Data.IORef            (atomicModifyIORef')
 import           Data.Maybe            (catMaybes)
 
+import           Bones.Skeletons.BranchAndBound.HdpH.Common hiding (declareStatic)
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Common as Common
 import           Bones.Skeletons.BranchAndBound.HdpH.Types
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
@@ -68,9 +70,12 @@ search :: Bool                              -- ^ Should discrepancy search be us
        -> Closure (ToCFns a b c s )         -- ^ Explicit toClosure instances
        -> Par a                             -- ^ The resulting solution after the search completes
 search diversify spawnDepth startingSol startingSpace bnd fs toC = do
-  initialiseRegistries =<< allNodes
+  master <- myNode
+  nodes  <- allNodes
 
-  master    <- myNode
+  -- Configuration initial state
+  initLocalRegistries nodes bnd toC
+  initSolutionOnMaster startingSol bnd toC
 
   -- Construct task parameters and priorities
   -- Hard-coded to spawn only leaf tasks (for now)
@@ -88,13 +93,6 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
   -- Global solution is a tuple (solution, bound). We only return the solution
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
-      -- Ensure the global state is configured on all nodes.
-      initialiseRegistries nodes = do
-        -- Bounds are kept unClosured for faster reads but solutions are kept closured
-        io $ addToRegistry solutionKey (unClosure (toCa (unClosure toC)) startingSol, bnd)
-        let bnd' = unClosure (toCb (unClosure toC)) bnd
-        forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd' |]) n
-
       spawnTasks taskList =
         if diversify then
           -- Tasks are spawned in reverse since the priority queue places newer
@@ -314,64 +312,13 @@ safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl toCL = expan
             when (updateBoundL fsl newBnd bnd) $ do
                 let cSol = toCaL toCL newSol
                     cBnd = toCbL toCL newBnd
-                updateLocalBounds cBnd (updateBoundL fsl)
+                updateLocalBounds newBnd (updateBoundL fsl)
                 notifyParentOfNewBound parent (cSol, cBnd) updateBnd
 
             expand newSol remaining'
 
             remaining'' <- removeChoiceL fsl c remaining
             go sol remaining'' cs
-
--- | Update local bounds
-updateLocalBounds :: Closure b
-                  -- ^ New bound
-                  -> UpdateBoundFn b
-                  -- ^ Functions (to access updateBound function)
-                  -> Par ()
-                  -- ^ Side-effect only function
-updateLocalBounds bnd updateB = do
-  ref <- io $ getRefFromRegistry boundKey
-  io $ atomicModifyIORef' ref $ \b ->
-    if updateB (unClosure bnd) b then (unClosure bnd, ()) else (b, ())
-
-updateLocalBoundsT :: (Closure b, Closure (UpdateBoundFn b))
-                   -> Thunk (Par ())
-updateLocalBoundsT (bnd, bndfn) = Thunk $ updateLocalBounds bnd (unClosure bndfn)
-
--- | Push new bounds to the master node. Also sends the new solution to avoid
---   additional messages.
-notifyParentOfNewBound :: Node
-                       -- ^ Master node
-                       -> (Closure a, Closure b)
-                       -- ^ (Solution, Bound)
-                       -> Closure (UpdateBoundFn b)
-                       -- ^ B&B Functions
-                       -> Par ()
-                       -- ^ Side-effect only function
-notifyParentOfNewBound parent solPlusBnd fs = do
-  -- We wait for an ack to avoid a race condition where all children finish
-  -- before the final updateBest task is ran on the master node.
-  spawnAt parent $(mkClosure [| updateParentBoundT (solPlusBnd, fs) |]) >>= get
-  return ()
-
--- | Update the global solution with the new solution. If this succeeds then
---   tell all other nodes to update their local information.
-updateParentBoundT :: ((Closure a, Closure b), Closure (UpdateBoundFn b))
-                     -- ^ ((newSol, newBound), UpdateBound)
-                  -> Thunk (Par (Closure ()))
-                     -- ^ Side-effect only function
-updateParentBoundT ((sol, bnd), updateB) = Thunk $ do
-  ref     <- io $ getRefFromRegistry solutionKey
-  updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if unClosure updateB (unClosure bnd) b
-                    then ((sol, unClosure bnd), True)
-                    else (prev                , False)
-
-  when updated $ do
-    ns <- allNodes
-    mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (bnd, updateB) |])) ns
-
-  return unitClosure
 
 --------------------------------------------------------------------------------
 -- Skeleton making use of Dynamic work generation. NOT COMPLETE
@@ -551,8 +498,7 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     declare $(static 'initRegistryBound)
-  , declare $(static 'updateParentBoundT)
-  , declare $(static 'updateLocalBoundsT)
   , declare $(static 'safeBranchAndBoundSkeletonChildTask)
   , declare $(static 'runAndFill)
+  , Common.declareStatic
   ]

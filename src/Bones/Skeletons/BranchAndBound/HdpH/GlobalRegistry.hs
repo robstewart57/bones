@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
   (
     registry
@@ -12,6 +13,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
   , getGlobalSearchSpace
 
   , initRegistryBound
+  , initLocalRegistries
 
   , getUserState
   , putUserState
@@ -23,15 +25,20 @@ module Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
   , userStateKey
   ) where
 
-import           Control.Parallel.HdpH (Closure, Thunk(..), Par, io, unClosure)
+import           Control.Parallel.HdpH (Closure, Thunk(..), Par, io, unClosure,
+                                        Node, pushTo, mkClosure)
+
+import           Control.Monad (forM_)
 
 import           Data.IORef      (IORef, atomicWriteIORef, newIORef, readIORef)
 
-import Data.Array.Base (unsafeWrite, unsafeRead)
-import Data.Array.IO (IOArray)
+import           Data.Array.Base (unsafeWrite, unsafeRead)
+import           Data.Array.IO (IOArray)
 import qualified Data.Array.IO as A
 
 import           System.IO.Unsafe      (unsafePerformIO)
+
+import           Bones.Skeletons.BranchAndBound.HdpH.Types
 
 --------------------------------------------------------------------------------
 -- Global (process local) Registry
@@ -89,6 +96,18 @@ boundKey = 2
 userStateKey :: Int
 {-# INLINE userStateKey #-}
 userStateKey = 3
+
+-- | Ensure all nodes know of the starting bound
+initLocalRegistries :: [Node] -- ^ Nodes to initialise
+                    -> b      -- ^ Bound value
+                    -> Closure (ToCFns a b c s ) -- ^ Explicit toClosure instances
+                    -> Par () -- ^ Side-effect only
+initLocalRegistries nodes bnd toCFns =
+  let toC    = unClosure toCFns
+      toCBnd = unClosure $ toCb toC
+      bnd' = toCBnd bnd
+  in
+  forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd' |]) n
 
 initRegistryBound :: Closure a -> Thunk (Par ())
 initRegistryBound bnd = Thunk $ io (addToRegistry boundKey (unClosure bnd))
