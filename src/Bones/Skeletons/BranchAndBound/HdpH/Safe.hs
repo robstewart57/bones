@@ -9,17 +9,14 @@ module Bones.Skeletons.BranchAndBound.HdpH.Safe
   ) where
 
 import           Control.Parallel.HdpH ( Closure, Node, Par, StaticDecl, Thunk (Thunk), IVar, GIVar
-                                       , allNodes, declare, get, io, mkClosure, myNode, rput, one
-                                       , pushTo, spawnAt, static, spawnWithPrio, sparkWithPrio
-                                       , unClosure, probe, put, new, glob, tryGet, tryRPut, fork, toClosure)
+                                       , allNodes, declare, io, mkClosure, myNode, rput, one
+                                       , static, sparkWithPrio , unClosure, probe, put, new,
+                                         glob, tryGet, tryRPut, toClosure)
 
-import           Control.Monad         (forM_, forM, foldM, foldM_, when)
+import           Control.Monad         (forM, foldM_, when)
 
 import           Control.Concurrent.STM       (atomically)
 import           Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
-
-import           Data.IORef            (atomicModifyIORef')
-import           Data.Maybe            (catMaybes)
 
 import           Bones.Skeletons.BranchAndBound.HdpH.Common hiding (declareStatic)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Common as Common (declareStatic)

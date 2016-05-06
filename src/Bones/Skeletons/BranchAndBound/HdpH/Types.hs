@@ -5,9 +5,10 @@
 module Bones.Skeletons.BranchAndBound.HdpH.Types where
 
 import           Control.DeepSeq       (NFData)
-import           Control.Parallel.HdpH (Closure, Par, mkClosure, unClosure,
-                                        StaticDecl, declare, static, ToClosure, locToClosure,
-                                        here, StaticToClosure, staticToClosure)
+
+import           Control.Parallel.HdpH (Closure, Par, unClosure, StaticDecl, declare,
+                                        ToClosure, locToClosure, here, StaticToClosure,
+                                        staticToClosure)
 
 import           Data.Serialize        (Serialize)
 

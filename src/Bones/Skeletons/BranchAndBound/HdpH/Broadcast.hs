@@ -7,18 +7,12 @@ module Bones.Skeletons.BranchAndBound.HdpH.Broadcast
   -- , findSolution
   ) where
 
-import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
-                                        StaticToClosure, Thunk (Thunk),
-                                        ToClosure, allNodes, declare, get, here,
-                                        io, locToClosure, mkClosure, myNode, fork,
-                                        one, pushTo, spawn, spawnAt, static, put,
-                                        new, glob, staticToClosure, unClosure, toClosure)
+import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl, Thunk (Thunk),
+                                        allNodes, declare, get, io, mkClosure, myNode,
+                                        fork, one, spawn, new, glob, unClosure, toClosure,
+                                        static)
 
-import           Control.Monad         (forM_, when)
-
-import           Data.IORef            (IORef, atomicModifyIORef')
-
-import           Data.Monoid           (mconcat)
+import           Control.Monad         (when)
 
 import           Bones.Skeletons.BranchAndBound.HdpH.Common hiding (declareStatic)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Common as Common
@@ -323,8 +317,7 @@ $(return []) -- TH Workaround
 declareStatic :: StaticDecl
 declareStatic = mconcat
   [
-    declare $(static 'initRegistryBound)
-  , declare $(static 'branchAndBoundChild)
+    declare $(static 'branchAndBoundChild)
 
   -- Decision Problem Skeleton
   -- , declare $(static 'branchAndBoundFindChild)
