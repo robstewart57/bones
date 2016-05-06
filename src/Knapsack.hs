@@ -7,6 +7,7 @@ module Knapsack
 (
     skeletonSafe
   , skeletonBroadcast
+  , skeletonSequential
   , declareStatic
   , Solution(..)
   , Item(..)
@@ -14,10 +15,13 @@ module Knapsack
 
 import Control.Parallel.HdpH hiding (declareStatic)
 
-import Bones.Skeletons.BranchAndBound.HdpH.Types (BAndBFunctions(BAndBFunctions), PruneType(..), ToCFns(..))
+import Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
+                                                 , BAndBFunctionsL(BAndBFunctionsL)
+                                                 , PruneType(..), ToCFns(..))
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
 
 import Control.DeepSeq (NFData)
 
@@ -76,6 +80,18 @@ skeletonBroadcast items capacity depth diversify = do
       $(mkClosure [| toClosureInteger |])
       $(mkClosure [| toClosureItem |])
       $(mkClosure [| toClosureItemList |])))
+
+skeletonSequential :: [Item] -> Integer -> Par Solution
+skeletonSequential items capacity = do
+  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+
+  Sequential.search
+    (Solution capacity [] 0 0)
+    items
+    (0 :: Integer)
+    (BAndBFunctionsL generateChoices shouldPrune shouldUpdateBound step removeChoice)
+
+
 
 --------------------------------------------------------------------------------
 -- Skeleton Functions

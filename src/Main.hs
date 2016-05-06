@@ -40,6 +40,7 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
 data Algorithm = SafeList
                | BroadcastList
+               | SequentialSkeleton
                deriving (Read, Show)
 
 data Options = Options
@@ -59,7 +60,7 @@ optionParser = Options
           <*> option auto
                 (  long "algorithm"
                 <> short 'a'
-                <> help "Which Knapsack algorithm to use: [SafeList, BitArray]"
+                <> help "Which Knapsack algorithm to use: [SafeList, BitArray, SequentialSkeleton]"
                 )
           <*> optional (option auto
                 (   long "spawnDepth"
@@ -194,6 +195,15 @@ main = do
       register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
       let is = map (\(a,b,c) -> (KL.Item a b c)) items'
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonBroadcast is cap depth' True)
+      case sol of
+            Nothing -> return (Nothing, t)
+            Just (KL.Solution _ is prof weig) ->
+              return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
+
+    SequentialSkeleton -> do
+      register $ HdpH.declareStatic
+      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential is cap)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ is prof weig) ->
