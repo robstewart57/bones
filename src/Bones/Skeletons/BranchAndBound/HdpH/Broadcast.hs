@@ -12,7 +12,7 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         ToClosure, allNodes, declare, get, here,
                                         io, locToClosure, mkClosure, myNode, fork,
                                         one, pushTo, spawn, spawnAt, static, put,
-                                        new, glob, staticToClosure, unClosure)
+                                        new, glob, staticToClosure, unClosure, toClosure)
 
 import           Control.Monad         (forM_, when)
 
@@ -22,7 +22,8 @@ import           Data.Monoid           (mconcat)
 
 import           Bones.Skeletons.BranchAndBound.HdpH.Common hiding (declareStatic)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Common as Common
-import           Bones.Skeletons.BranchAndBound.HdpH.Types
+import           Bones.Skeletons.BranchAndBound.HdpH.Types hiding (declareStatic)
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Types as Types (declareStatic)
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import           Bones.Skeletons.BranchAndBound.HdpH.Util
 
@@ -90,8 +91,8 @@ branchAndBoundChild (spawnDepth, n, c, sol, rem, fs', toC) =
         let sol'   = unClosure (toCa (unClosure toC)) startingSol
             space  = unClosure (toCs (unClosure toC)) rem'
         branchAndBoundExpand spawnDepth n sol' space updateBnd fs' toC
-        return unitClosure
-      _       -> return unitClosure
+        return $ toClosure ()
+      _       -> return $ toClosure ()
 
 branchAndBoundExpand ::
        Int
@@ -330,4 +331,5 @@ declareStatic = mconcat
   -- , declare $(static 'bAndbFind_updateParentBest)
 
   , Common.declareStatic
+  , Types.declareStatic
   ]

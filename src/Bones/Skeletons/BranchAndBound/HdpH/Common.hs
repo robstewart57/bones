@@ -18,14 +18,14 @@ module Bones.Skeletons.BranchAndBound.HdpH.Common
 where
 
 import Control.Parallel.HdpH (Par, Closure, unClosure, io, Thunk(..), mkClosure,
-                              spawnAt, Node, get, allNodes, pushTo,
+                              spawnAt, Node, get, allNodes, pushTo, toClosure,
                               StaticDecl, declare, static)
 
 import Control.Monad (when)
 
 import Data.IORef            (atomicModifyIORef')
 
-import Bones.Skeletons.BranchAndBound.HdpH.Types
+import Bones.Skeletons.BranchAndBound.HdpH.Types hiding (declareStatic)
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 
@@ -92,7 +92,7 @@ updateParentBoundT ((sol, bnd), updateB) = Thunk $ do
     ns <- allNodes
     mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (bnd, updateB) |])) ns
 
-  return unitClosure
+  return $ toClosure ()
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl

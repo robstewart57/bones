@@ -11,7 +11,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.Safe
 import           Control.Parallel.HdpH ( Closure, Node, Par, StaticDecl, Thunk (Thunk), IVar, GIVar
                                        , allNodes, declare, get, io, mkClosure, myNode, rput, one
                                        , pushTo, spawnAt, static, spawnWithPrio, sparkWithPrio
-                                       , unClosure, probe, put, new, glob, tryGet, tryRPut, fork)
+                                       , unClosure, probe, put, new, glob, tryGet, tryRPut, fork, toClosure)
 
 import           Control.Monad         (forM_, forM, foldM, foldM_, when)
 
@@ -22,8 +22,9 @@ import           Data.IORef            (atomicModifyIORef')
 import           Data.Maybe            (catMaybes)
 
 import           Bones.Skeletons.BranchAndBound.HdpH.Common hiding (declareStatic)
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Common as Common
-import           Bones.Skeletons.BranchAndBound.HdpH.Types
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Common as Common (declareStatic)
+import           Bones.Skeletons.BranchAndBound.HdpH.Types hiding (declareStatic)
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Types as Types (declareStatic)
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
 
@@ -110,10 +111,10 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
         if wasTaken
          then spinGet (resultM task)
          else do
-          put (isStarted task) unitClosure
+          put (isStarted task) $ toClosure ()
           safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) updateB fsl toCl
-          put (resultM task) unitClosure
-          return unitClosure
+          put (resultM task) $ toClosure ()
+          return $ toClosure ()
 
       spawnTasksWithPrios task =
         let prio  = priority task
@@ -241,7 +242,7 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs, toC) =
   Thunk $ do
     -- Notify the parent that we are starting this task. TryRPut returns true if
     -- the IVar was free and write was successful, else false
-    doStart <- unClosure <$> (spinGet =<< tryRPut taken unitClosure)
+    doStart <- unClosure <$> (spinGet =<< tryRPut taken (toClosure ()))
     if doStart
       then
         let fsL      = extractBandBFunctions fs
@@ -249,7 +250,7 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs, toC) =
             !updateB = updateBound (unClosure fs)
         in safeBranchAndBoundSkeletonChild (unClosure c) n (unClosure sol) (unClosure remaining) updateB fsL toCl
       else
-        return unitClosure
+        return $ toClosure ()
 
 safeBranchAndBoundSkeletonChild ::
        c
@@ -269,8 +270,8 @@ safeBranchAndBoundSkeletonChild c parent sol remaining updateB fsl toCL = do
       NoPrune -> do
        (startingSol, _, remaining') <- stepL fsl c sol remaining
        safeBranchAndBoundSkeletonExpand parent startingSol remaining' updateB fsl toCL
-       return unitClosure
-      _       -> return unitClosure
+       return $ toClosure ()
+      _       -> return $ toClosure ()
 
 -- | Main search function. Performs a backtracking search using the user
 --  specified functions.
@@ -501,4 +502,5 @@ declareStatic = mconcat
   , declare $(static 'safeBranchAndBoundSkeletonChildTask)
   , declare $(static 'runAndFill)
   , Common.declareStatic
+  , Types.declareStatic
   ]

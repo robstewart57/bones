@@ -5,7 +5,9 @@
 module Bones.Skeletons.BranchAndBound.HdpH.Types where
 
 import           Control.DeepSeq       (NFData)
-import           Control.Parallel.HdpH (Closure, Par, mkClosure, unClosure)
+import           Control.Parallel.HdpH (Closure, Par, mkClosure, unClosure,
+                                        StaticDecl, declare, static, ToClosure, locToClosure,
+                                        here, StaticToClosure, staticToClosure)
 
 import           Data.Serialize        (Serialize)
 
@@ -33,11 +35,11 @@ type UpdateBoundFn b = b -> b -> Bool
 
 data BAndBFunctionsL a b c s =
   BAndBFunctionsL
-    { generateChoicesL :: a ->  s -> Par [ c]
-    , shouldPruneL     :: c ->  b -> a -> s -> Par PruneType
-    , updateBoundL     :: b ->  b -> Bool
-    , stepL            :: c ->  a -> s -> Par ( a,  b,  s)
-    , removeChoiceL    :: c ->  s-> Par s
+    { generateChoicesL :: a -> s -> Par [c]
+    , shouldPruneL     :: c -> b -> a -> s -> Par PruneType
+    , updateBoundL     :: b -> b -> Bool
+    , stepL            :: c -> a -> s -> Par (a, b, s)
+    , removeChoiceL    :: c -> s -> Par s
     } deriving (Generic)
 
 data ToCFnsL a b c s =
@@ -56,9 +58,7 @@ instance Serialize (ToCFns a b c s)
 
 data PruneType = NoPrune | Prune | PruneLevel
 
-unitClosure :: Closure ()
-{-#INLINE unitClosure #-}
-unitClosure = $(mkClosure [| () |])
+instance ToClosure () where locToClosure = $(here)
 
 --------------------------------------------------------------------------------
 -- Type Utility Functions
@@ -72,3 +72,12 @@ extractToCFunctions :: Closure (ToCFns a b c s) -> ToCFnsL a b c s
 extractToCFunctions fns =
   let ToCFns !a !b !c !d = unClosure fns
   in  ToCFnsL (unClosure a) (unClosure b) (unClosure c) (unClosure d)
+
+-- Static Information
+$(return []) -- TH Workaround
+declareStatic :: StaticDecl
+declareStatic = mconcat
+  [
+    declare (staticToClosure :: StaticToClosure ())
+    --declare $(static 'unitClosure)
+  ]
