@@ -19,6 +19,7 @@ library
                        Bones.Skeletons.BranchAndBound.HdpH.Common
                        Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
                        Bones.Skeletons.BranchAndBound.HdpH.Safe
+                       Bones.Skeletons.BranchAndBound.HdpH.Sequential
                        Bones.Skeletons.BranchAndBound.HdpH.Types
                        Bones.Skeletons.BranchAndBound.HdpH.Util
                        -- Bones.Skeletons.BranchAndBound.HdpH.Broadcast
