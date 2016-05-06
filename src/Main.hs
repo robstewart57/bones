@@ -193,7 +193,7 @@ main = do
     BroadcastList -> do
       register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
       let is = map (\(a,b,c) -> (KL.Item a b c)) items'
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonBroadcast is cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ is prof weig) ->

@@ -6,7 +6,7 @@
 module Knapsack
 (
     skeletonSafe
-  --, skeletonBroadcast
+  , skeletonBroadcast
   , declareStatic
   , Solution(..)
   , Item(..)
