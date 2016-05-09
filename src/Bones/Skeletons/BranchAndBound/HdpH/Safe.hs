@@ -151,17 +151,17 @@ createTasksToDepth :: Bool
                    -- ^ Explicit toClosure instances
                    -> Par [Task c a s]
 createTasksToDepth lowestOnly master depth ssol sspace fs toC' =
-  go depth 1 0 ssol sspace (unClosure fs) (unClosure toC')
+  go depth 1 0 ssol sspace (extractBandBFunctions fs) (extractToCFunctions toC')
   where
     go d i parentP sol space fns toC
          | d == 0 = do
-             cs <- unClosure (generateChoices fns) sol space
-             spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
+             cs <- generateChoicesL fns sol space
+             spaces <- scanM (flip (removeChoiceL fns)) space cs
 
              zipWithM3 (\p c s -> createTask toC (parentP + p, (c, sol, s))) (0 : inc i) cs spaces
          | otherwise = do
-             cs     <- unClosure (generateChoices fns) sol space
-             spaces <- scanM (flip (unClosure (removeChoice fns))) space cs
+             cs     <- generateChoicesL fns sol space
+             spaces <- scanM (flip (removeChoiceL fns)) space cs
              let ts = zip3 ((0 :: Int) : inc i) cs spaces
 
              -- We can either create tasks at all nodes or wait until we reach
@@ -170,13 +170,13 @@ createTasksToDepth lowestOnly master depth ssol sspace fs toC' =
              xs <- if lowestOnly
                     then
                       forM ts $ \(p,c,s) -> do
-                        (sol', _, space') <- unClosure (step fns) c sol s
+                        (sol', _, space') <- stepL fns c sol s
                         go (d - 1) (i * 2) (parentP + p) sol' space' fns toC
                     else do
                       tasks  <- mapM (\(p, c,s) -> createTask toC (parentP + p, (c, sol, s))) ts
 
                       forM (zip ts tasks) $ \((p,c,s), t) -> do
-                        (sol', _, space') <- unClosure (step fns) c sol s
+                        (sol', _, space') <- stepL fns c sol s
                         ts' <- go (d - 1) (i * 2) p sol' space' fns toC
                         -- Don't bother storing the "left" subtask since the parent
                         -- task will do this first.
@@ -192,9 +192,9 @@ createTasksToDepth lowestOnly master depth ssol sspace fs toC' =
        resMaster <- new
        resG <- glob resMaster
 
-       let sol    = unClosure (toCa toC) s
-           rem    = unClosure (toCs toC) r
-           choice = unClosure (toCc toC) c
+       let sol    = toCaL toC s
+           rem    = toCsL toC r
+           choice = toCcL toC c
 
        let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
                                                                       , choice
