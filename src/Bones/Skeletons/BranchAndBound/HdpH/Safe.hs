@@ -77,7 +77,7 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
 
   -- Construct task parameters and priorities
   -- Hard-coded to spawn only leaf tasks (for now)
-  taskList  <- createTasksToDepth True master spawnDepth startingSol startingSpace fs toC
+  taskList  <- createTasksToDepth master spawnDepth startingSol startingSpace fs toC
 
   -- Register tasks with HdpH
   spawnTasks taskList
@@ -135,9 +135,7 @@ runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 -- | Construct tasks to given depth in the tree. Assigned priorities in a
 --   discrepancy search manner (which can later be ignored if required). This
 --   function is essentially where the key scheduling decisions happen.
-createTasksToDepth :: Bool
-                   -- ^ Should we create tasks only at the leafs (max depth) or also at each node?
-                   -> Node
+createTasksToDepth :: Node
                    -- ^ The master node which stores the global bound
                    -> Int
                    -- ^ Depth to spawn to. Depth = 0 implies top level only.
@@ -150,7 +148,7 @@ createTasksToDepth :: Bool
                    -> Closure (ToCFns a b c s)
                    -- ^ Explicit toClosure instances
                    -> Par [Task c a s]
-createTasksToDepth lowestOnly master depth ssol sspace fs toC' =
+createTasksToDepth master depth ssol sspace fs toC' =
   go depth 1 0 ssol sspace (extractBandBFunctions fs) (extractToCFunctions toC')
   where
     go d i parentP sol space fns toC
@@ -167,22 +165,9 @@ createTasksToDepth lowestOnly master depth ssol sspace fs toC' =
              -- We can either create tasks at all nodes or wait until we reach
              -- the leaf nodes (spawn-depth) before creating Both methods have
              -- different effects on the overall search ordering.
-             xs <- if lowestOnly
-                    then
-                      forM ts $ \(p,c,s) -> do
+             xs <- forM ts $ \(p,c,s) -> do
                         (sol', _, space') <- stepL fns c sol s
                         go (d - 1) (i * 2) (parentP + p) sol' space' fns toC
-                    else do
-                      tasks  <- mapM (\(p, c,s) -> createTask toC (parentP + p, (c, sol, s))) ts
-
-                      forM (zip ts tasks) $ \((p,c,s), t) -> do
-                        (sol', _, space') <- stepL fns c sol s
-                        ts' <- go (d - 1) (i * 2) p sol' space' fns toC
-                        -- Don't bother storing the "left" subtask since the parent
-                        -- task will do this first.
-                        case ts' of
-                          [] -> return [t]
-                          _  -> return (t : tail ts')
 
              return (concat xs)
 
