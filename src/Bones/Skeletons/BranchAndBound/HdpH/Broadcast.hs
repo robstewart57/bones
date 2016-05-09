@@ -85,8 +85,8 @@ branchAndBoundChild (spawnDepth, n, c, sol, rem, fs', toC) =
         let sol'   = unClosure (toCa (unClosure toC)) startingSol
             space  = unClosure (toCs (unClosure toC)) rem'
         branchAndBoundExpand spawnDepth n sol' space updateBnd fs' toC
-        return $ toClosure ()
-      _       -> return $ toClosure ()
+        return toClosureUnit
+      _       -> return toClosureUnit
 
 branchAndBoundExpand ::
        Int

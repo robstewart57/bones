@@ -92,7 +92,7 @@ updateParentBoundT ((sol, bnd), updateB) = Thunk $ do
     ns <- allNodes
     mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (bnd, updateB) |])) ns
 
-  return $ toClosure ()
+  return toClosureUnit
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl

@@ -108,10 +108,10 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
         if wasTaken
          then spinGet (resultM task)
          else do
-          put (isStarted task) $ toClosure ()
+          put (isStarted task) toClosureUnit
           safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) updateB fsl toCl
-          put (resultM task) $ toClosure ()
-          return $ toClosure ()
+          put (resultM task) toClosureUnit
+          return toClosureUnit
 
       spawnTasksWithPrios task =
         let prio  = priority task
@@ -224,7 +224,7 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs, toC) =
   Thunk $ do
     -- Notify the parent that we are starting this task. TryRPut returns true if
     -- the IVar was free and write was successful, else false
-    doStart <- unClosure <$> (spinGet =<< tryRPut taken (toClosure ()))
+    doStart <- unClosure <$> (spinGet =<< tryRPut taken toClosureUnit)
     if doStart
       then
         let fsL      = extractBandBFunctions fs
@@ -232,7 +232,7 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs, toC) =
             !updateB = updateBound (unClosure fs)
         in safeBranchAndBoundSkeletonChild (unClosure c) n (unClosure sol) (unClosure remaining) updateB fsL toCl
       else
-        return $ toClosure ()
+        return toClosureUnit
 
 safeBranchAndBoundSkeletonChild ::
        c
@@ -252,8 +252,8 @@ safeBranchAndBoundSkeletonChild c parent sol remaining updateB fsl toCL = do
       NoPrune -> do
        (startingSol, _, remaining') <- stepL fsl c sol remaining
        safeBranchAndBoundSkeletonExpand parent startingSol remaining' updateB fsl toCL
-       return $ toClosure ()
-      _       -> return $ toClosure ()
+       return toClosureUnit
+      _       -> return toClosureUnit
 
 -- | Main search function. Performs a backtracking search using the user
 --  specified functions.

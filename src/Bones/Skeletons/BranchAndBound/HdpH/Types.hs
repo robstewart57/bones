@@ -6,9 +6,8 @@ module Bones.Skeletons.BranchAndBound.HdpH.Types where
 
 import           Control.DeepSeq       (NFData)
 
-import           Control.Parallel.HdpH (Closure, Par, unClosure, StaticDecl, declare,
-                                        ToClosure, locToClosure, here, StaticToClosure,
-                                        staticToClosure)
+import           Control.Parallel.HdpH (Closure, Par, unClosure, StaticDecl,
+                                        declare, mkClosure, static)
 
 import           Data.Serialize        (Serialize)
 
@@ -59,7 +58,11 @@ instance Serialize (ToCFns a b c s)
 
 data PruneType = NoPrune | Prune | PruneLevel
 
-instance ToClosure () where locToClosure = $(here)
+toClosureUnit :: Closure ()
+toClosureUnit = $(mkClosure [| unit |])
+
+unit :: ()
+unit = ()
 
 --------------------------------------------------------------------------------
 -- Type Utility Functions
@@ -79,6 +82,5 @@ $(return []) -- TH Workaround
 declareStatic :: StaticDecl
 declareStatic = mconcat
   [
-    declare (staticToClosure :: StaticToClosure ())
-    --declare $(static 'unitClosure)
+    declare $(static 'unit)
   ]
