@@ -318,6 +318,7 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     declare $(static 'branchAndBoundChild)
+  , declare $(static 'initRegistryBound)
 
   -- Decision Problem Skeleton
   -- , declare $(static 'branchAndBoundFindChild)
