@@ -41,6 +41,7 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 data Algorithm = SafeList
                | BroadcastList
                | SequentialSkeleton
+               | Sequential
                deriving (Read, Show)
 
 data Options = Options
@@ -204,6 +205,14 @@ main = do
       register $ HdpH.declareStatic
       let is = map (\(a,b,c) -> (KL.Item a b c)) items'
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential is cap)
+      case sol of
+            Nothing -> return (Nothing, t)
+            Just (KL.Solution _ is prof weig) ->
+              return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
+    Sequential -> do
+      register $ HdpH.declareStatic
+      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.sequentialInlined is cap)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ is prof weig) ->

@@ -8,6 +8,7 @@ module Knapsack
     skeletonSafe
   , skeletonBroadcast
   , skeletonSequential
+  , sequentialInlined
   , declareStatic
   , Solution(..)
   , Item(..)
@@ -18,17 +19,19 @@ import Control.Parallel.HdpH hiding (declareStatic)
 import Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
                                                  , BAndBFunctionsL(BAndBFunctionsL)
                                                  , PruneType(..), ToCFns(..))
-import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
+-- import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
+import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
 
 import Control.DeepSeq (NFData)
+import Control.Monad (when)
 
 import GHC.Generics (Generic)
 
 import Data.Serialize (Serialize)
-import Data.IORef (newIORef)
+import Data.IORef
 
 data Solution = Solution !Integer ![Item] !Integer !Integer deriving (Generic, Show)
 data Item = Item {-# UNPACK #-} !Int !Integer !Integer deriving (Generic, Show)
@@ -90,6 +93,67 @@ skeletonSequential items capacity = do
     items
     (0 :: Integer)
     (BAndBFunctionsL generateChoices shouldPrune shouldUpdateBound step removeChoice)
+
+sequentialInlined :: [Item] -> Integer -> Par Solution
+sequentialInlined items capacity = do
+  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+  seqSearch (Solution capacity [] 0 0) items 0
+
+-- Assumes any global space state is already initialised
+seqSearch :: Solution -> [Item] -> Integer -> Par a
+seqSearch ssol sspace sbnd = do
+  io $ addToRegistry solutionKey (ssol, sbnd)
+  io $ addToRegistry boundKey sbnd
+  expand ssol sspace
+  io $ fst <$> readFromRegistry solutionKey
+
+expand :: Solution -> [Item] -> Par ()
+expand = go1
+  where
+    go1 s r = generateChoices s r >>= go s r
+
+    go _ _ [] = return ()
+
+    go sol remaining (c:cs) = do
+      bnd <- io $ readFromRegistry boundKey
+
+      sp <- shouldPrune c bnd sol remaining
+      case sp of
+        Prune      -> do
+          remaining'' <- removeChoice c remaining
+          go sol remaining'' cs
+
+        PruneLevel -> return ()
+
+        NoPrune    -> do
+          (newSol, newBnd, remaining') <- step c sol remaining
+
+          when (shouldUpdateBound newBnd bnd) $
+              updateLocalBoundAndSol newSol newBnd
+
+          go1 newSol remaining'
+
+          remaining'' <- removeChoice c remaining
+          go sol remaining'' cs
+
+-- TODO: Technically we don't need atomic modify when we are sequential but this
+-- keeps us closer to the parallel version.
+updateLocalBoundAndSol :: Solution -> Integer -> Par ()
+updateLocalBoundAndSol sol bnd = do
+  -- Bnd
+  ref <- io $ getRefFromRegistry boundKey
+  io $ atomicModifyIORef' ref $ \b ->
+    if shouldUpdateBound bnd b then (bnd, ()) else (b, ())
+
+  -- Sol
+  ref <- io $ getRefFromRegistry solutionKey
+  io $ atomicModifyIORef' ref $ \prev@(_,b) ->
+        if shouldUpdateBound bnd b
+            then ((sol, bnd), True)
+            else (prev, False)
+
+  return ()
+
 
 
 
