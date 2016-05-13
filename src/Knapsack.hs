@@ -122,8 +122,8 @@ seqSearch ssol sspace sbnd = do
 expand :: Solution -> [Item] -> Par ()
 expand = go1
   where
-    go1 s r = generateChoices s r >>= \cs -> case cs of [] -> io (putStrLn "Close") >> go s r []
-                                                        xs -> go s r xs
+    go1 s r = generateChoices s r >>= go s r -- \cs -> case cs of [] -> io (putStrLn "Close") >> go s r []
+                                                        --xs -> go s r xs
 
     go _ _ [] = return ()
 
@@ -137,7 +137,7 @@ expand = go1
           go sol remaining'' cs
 
         PruneLevel -> do
-          io . putStrLn $ "Prune"
+          -- io . putStrLn $ "Prune"
           return ()
 
         NoPrune    -> do
@@ -186,7 +186,9 @@ updateLocalBoundAndSol sol bnd = do
 -- Potential choices is simply the list of un-chosen items
 generateChoices :: Solution -> [Item] -> Par [Item]
 generateChoices (Solution mix cap _ _ curWeight) remaining = do
-  (profits, weights) <- io getGlobalSearchSpace
+  (_ , weights) <- io getGlobalSearchSpace
+  -- io . putStrLn $ "Generating Choices"
+  -- io . putStrLn $ "Remaining: " ++ show remaining
   return $ filter (\i -> curWeight + weights ! i <= cap) remaining
 
 -- Calculate the bounds function
@@ -207,7 +209,7 @@ shouldPrune i bnd (Solution mix cap _ p w) r = do
     -- TODO: Scope capturing function
     ub :: Array Int Integer -> Array Int Integer -> Integer -> Int -> Integer -> Integer -> Item -> Integer
     ub profits weights cap mix p w i
-      | mix > i = p
+      | i > mix = p
       | cap - (w + weights ! i) >= 0 = ub profits weights cap mix (p + profits ! i) (w + weights ! i) (i + 1)
       | otherwise = p + floor (fromIntegral (cap - w) * divf (profits ! i) (weights ! i))
 
