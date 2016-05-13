@@ -33,23 +33,32 @@ import GHC.Generics (Generic)
 import Data.Serialize (Serialize)
 import Data.IORef
 
-data Solution = Solution !Integer ![Item] !Integer !Integer deriving (Generic, Show)
-data Item = Item {-# UNPACK #-} !Int !Integer !Integer deriving (Generic, Show)
+import Data.List (delete)
+
+import Data.Array
+
+data Solution = Solution !Int !Integer ![Item] !Integer !Integer deriving (Generic, Show)
+type Item = Int
 
 instance Serialize Solution where
-instance Serialize Item where
 instance NFData Solution where
-instance NFData Item where
 
-skeletonSafe :: [Item] -> Integer -> Int -> Bool -> Par Solution
+createGlobalArrays :: [(Int, Integer, Integer)] -> (Array Int Integer, Array Int Integer)
+createGlobalArrays its = ( array bnds (map (\(i, p, _) -> (i, p)) its)
+                         , array bnds (map (\(i, _, w) -> (i, w)) its)
+                         )
+  where bnds = (1, length its)
+
+skeletonSafe :: [(Int, Integer, Integer)] -> Integer -> Int -> Bool -> Par Solution
 skeletonSafe items capacity depth diversify = do
-  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+  let as = createGlobalArrays items
+  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
 
   Safe.search
     diversify
     depth
-    (Solution capacity [] 0 0)
-    items
+    (Solution (length items) capacity [] 0 0)
+    (map (\(a,b,c) -> a) items)
     (0 :: Integer)
     (toClosure (BAndBFunctions
       $(mkClosure [| generateChoices |])
@@ -63,14 +72,15 @@ skeletonSafe items capacity depth diversify = do
       $(mkClosure [| toClosureItem |])
       $(mkClosure [| toClosureItemList |])))
 
-skeletonBroadcast :: [Item] -> Integer -> Int -> Bool -> Par Solution
+skeletonBroadcast :: [(Int, Integer, Integer)] -> Integer -> Int -> Bool -> Par Solution
 skeletonBroadcast items capacity depth diversify = do
-  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+  let as = createGlobalArrays items
+  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
 
   Broadcast.search
     depth
-    (Solution capacity [] 0 0)
-    items
+    (Solution (length items) capacity [] 0 0)
+    (map (\(a,b,c) -> a) items)
     (0 :: Integer)
     (toClosure (BAndBFunctions
       $(mkClosure [| generateChoices |])
@@ -84,20 +94,22 @@ skeletonBroadcast items capacity depth diversify = do
       $(mkClosure [| toClosureItem |])
       $(mkClosure [| toClosureItemList |])))
 
-skeletonSequential :: [Item] -> Integer -> Par Solution
+skeletonSequential :: [(Int, Integer, Integer)] -> Integer -> Par Solution
 skeletonSequential items capacity = do
-  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
+  let as = createGlobalArrays items
+  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
 
   Sequential.search
-    (Solution capacity [] 0 0)
-    items
+    (Solution (length items) capacity [] 0 0)
+    (map (\(a,b,c) -> a) items)
     (0 :: Integer)
     (BAndBFunctionsL generateChoices shouldPrune shouldUpdateBound step removeChoice)
 
-sequentialInlined :: [Item] -> Integer -> Par Solution
+sequentialInlined :: [(Int, Integer, Integer)] -> Integer -> Par Solution
 sequentialInlined items capacity = do
-  io $ newIORef items >>= addGlobalSearchSpaceToRegistry
-  seqSearch (Solution capacity [] 0 0) items 0
+  let as = createGlobalArrays items
+  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
+  seqSearch (Solution (length items) capacity [] 0 0) (map (\(a,b,c) -> a) items) 0
 
 -- Assumes any global space state is already initialised
 seqSearch :: Solution -> [Item] -> Integer -> Par a
@@ -110,7 +122,8 @@ seqSearch ssol sspace sbnd = do
 expand :: Solution -> [Item] -> Par ()
 expand = go1
   where
-    go1 s r = generateChoices s r >>= go s r
+    go1 s r = generateChoices s r >>= \cs -> case cs of [] -> io (putStrLn "Close") >> go s r []
+                                                        xs -> go s r xs
 
     go _ _ [] = return ()
 
@@ -123,7 +136,9 @@ expand = go1
           remaining'' <- removeChoice c remaining
           go sol remaining'' cs
 
-        PruneLevel -> return ()
+        PruneLevel -> do
+          io . putStrLn $ "Prune"
+          return ()
 
         NoPrune    -> do
           (newSol, newBnd, remaining') <- step c sol remaining
@@ -170,9 +185,9 @@ updateLocalBoundAndSol sol bnd = do
 
 -- Potential choices is simply the list of un-chosen items
 generateChoices :: Solution -> [Item] -> Par [Item]
-generateChoices (Solution cap _ _ curWeight) remaining =
-  -- Could also combine these as a fold, but it's easier to read this way.
-  return $ filter (\(Item _ _ w) -> curWeight + w <= cap) remaining
+generateChoices (Solution mix cap _ _ curWeight) remaining = do
+  (profits, weights) <- io getGlobalSearchSpace
+  return $ filter (\i -> curWeight + weights ! i <= cap) remaining
 
 -- Calculate the bounds function
 shouldPrune :: Item
@@ -180,18 +195,21 @@ shouldPrune :: Item
             -> Solution
             -> [Item]
             -> Par PruneType
-shouldPrune (Item _ ip iw) bnd (Solution cap _ p w) r =
-  if fromIntegral bnd > ub (p + ip) (w + iw) cap r then
+shouldPrune i bnd (Solution mix cap _ p w) r = do
+  (profits, weights) <- io getGlobalSearchSpace
+  let ub' = ub profits weights cap mix (p + profits ! i) (w + weights ! i) (i + 1)
+  if fromIntegral bnd >= ub' then
     return PruneLevel
   else
     return NoPrune
 
   where
-    ub :: Integer -> Integer -> Integer -> [Item] -> Integer
-    ub p _ _ [] = p
-    ub p w c (Item _ ip iw : is)
-      | c - (w + iw) >= 0 = ub (p + ip) (w + iw) c is
-      | otherwise = p + floor (fromIntegral (c - w) * divf ip iw)
+    -- TODO: Scope capturing function
+    ub :: Array Int Integer -> Array Int Integer -> Integer -> Int -> Integer -> Integer -> Item -> Integer
+    ub profits weights cap mix p w i
+      | mix > i = p
+      | cap - (w + weights ! i) >= 0 = ub profits weights cap mix (p + profits ! i) (w + weights ! i) (i + 1)
+      | otherwise = p + floor (fromIntegral (cap - w) * divf (profits ! i) (weights ! i))
 
     divf :: Integer -> Integer -> Float
     divf a b = fromIntegral a / fromIntegral b
@@ -201,13 +219,14 @@ shouldUpdateBound :: Integer -> Integer -> Bool
 shouldUpdateBound x y = x > y
 
 step :: Item -> Solution -> [Item] -> Par (Solution, Integer, [Item])
-step i@(Item _ np nw) (Solution cap is p w) r = do
+step i (Solution mix cap is p w) r = do
+  (profits, weights) <- io getGlobalSearchSpace
   rm <- removeChoice i r
 
-  return (Solution cap (i:is) (p + np) (w + nw), p + np, rm)
+  return (Solution mix cap (i:is) (p + profits ! i) (w + weights ! i), p + profits ! i, rm)
 
 removeChoice :: Item -> [Item] -> Par [Item]
-removeChoice (Item v _ _ ) its = return $ filter (\(Item n _ _) -> v /= n) its
+removeChoice i its = return $ delete i its
 
 --------------------------------------------------------------------------------
 -- Closure Instances

@@ -185,38 +185,34 @@ main = do
   (s, tm) <- case alg of
     SafeList -> do
       register $ HdpH.declareStatic <> KL.declareStatic <> Safe.declareStatic
-      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe is cap depth' True)
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe items' cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
-            Just (KL.Solution _ is prof weig) ->
-              return (Just ((map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig)), t)
+            Just (KL.Solution _ _ is prof weig) ->
+              return (Just (is, prof, weig), t)
 
     BroadcastList -> do
       register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
-      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonBroadcast is cap depth' True)
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonBroadcast items' cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
-            Just (KL.Solution _ is prof weig) ->
-              return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
+            Just (KL.Solution _ _ is prof weig) ->
+              return (Just (is, prof, weig), t)
 
     SequentialSkeleton -> do
       register $ HdpH.declareStatic
-      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential is cap)
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential items' cap)
       case sol of
             Nothing -> return (Nothing, t)
-            Just (KL.Solution _ is prof weig) ->
-              return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
+            Just (KL.Solution _ _ is prof weig) ->
+              return (Just (is, prof, weig), t)
     Sequential -> do
       register $ HdpH.declareStatic
-      let is = map (\(a,b,c) -> (KL.Item a b c)) items'
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.sequentialInlined is cap)
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.sequentialInlined items' cap)
       case sol of
             Nothing -> return (Nothing, t)
-            Just (KL.Solution _ is prof weig) ->
-              return (Just (map (\(KL.Item a b c) -> (a,b,c)) is, prof, weig), t)
+            Just (KL.Solution _ _ is prof weig) ->
+              return (Just (is, prof, weig), t)
 
   case s of
     Nothing -> return ()
@@ -229,5 +225,5 @@ main = do
         then putStrLn "Expected Result? True"
         else putStrLn "Expected Result? False"
 
-      putStrLn $ "Solution: " ++ show  (map (\(_,b,c) -> (b,c)) sol)
+      putStrLn $ "Solution: " ++ show sol
       putStrLn $ "computeTime: " ++ show tm ++ " s"
