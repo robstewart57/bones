@@ -20,9 +20,6 @@ packages:
 - location:
     git: git@github.com:BlairArchibald/bones.git
     commit: f3a3cc5dd5f1da7e15eacc795b875d024a53d8c4
-- location:
-    git: git@github.com:BlairArchibald/bitSetArray.git
-    commit: 1a4291d320a43812a31f646f13030c24d9d5f4c8
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps: []

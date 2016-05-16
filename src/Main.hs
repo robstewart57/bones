@@ -9,9 +9,6 @@ import qualified Control.Parallel.HdpH as HdpH (declareStatic)
 import Control.Exception        (evaluate)
 import Control.Monad (void)
 
-import qualified Data.Array.Unboxed as U
-import qualified Data.BitSetArrayIO as A
-
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 
@@ -25,9 +22,6 @@ import System.IO (hSetBuffering, stdout, stderr, BufferMode(..))
 import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces, digit, newline)
 
 import qualified Knapsack as KL
--- import qualified KnapsackArray as KA
-
-import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast

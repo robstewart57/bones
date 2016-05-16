@@ -20,7 +20,6 @@ executable bones-knapsack
   other-modules:       Knapsack
   build-depends:       base
                      , array                >= 0.5.1 && < 0.5.2
-                     , bitSetArray          == 0.1.0.0
                      , bones                == 0.1.0.0
                      , cereal               >= 0.5.1
                      , clock                >= 0.4.1    && < 0.7
