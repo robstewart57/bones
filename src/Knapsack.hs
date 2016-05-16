@@ -11,7 +11,6 @@ module Knapsack
   , sequentialInlined
   , declareStatic
   , Solution(..)
-  , Item(..)
 ) where
 
 import Control.Parallel.HdpH hiding (declareStatic)
@@ -19,7 +18,7 @@ import Control.Parallel.HdpH hiding (declareStatic)
 import Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
                                                  , BAndBFunctionsL(BAndBFunctionsL)
                                                  , PruneType(..), ToCFns(..))
--- import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
+
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
@@ -105,6 +104,9 @@ skeletonSequential items capacity = do
     (0 :: Integer)
     (BAndBFunctionsL generateChoices shouldPrune shouldUpdateBound step removeChoice)
 
+--------------------------------------------------------------------------------
+-- An inlined version of the sequential skeleton
+--------------------------------------------------------------------------------
 sequentialInlined :: [(Int, Integer, Integer)] -> Integer -> Par Solution
 sequentialInlined items capacity = do
   let as = createGlobalArrays items
@@ -169,9 +171,6 @@ updateLocalBoundAndSol sol bnd = do
 
   return ()
 
-
-
-
 --------------------------------------------------------------------------------
 -- Skeleton Functions
 --------------------------------------------------------------------------------
@@ -185,10 +184,8 @@ updateLocalBoundAndSol sol bnd = do
 
 -- Potential choices is simply the list of un-chosen items
 generateChoices :: Solution -> [Item] -> Par [Item]
-generateChoices (Solution mix cap _ _ curWeight) remaining = do
+generateChoices (Solution _ cap _ _ curWeight) remaining = do
   (_ , weights) <- io getGlobalSearchSpace
-  -- io . putStrLn $ "Generating Choices"
-  -- io . putStrLn $ "Remaining: " ++ show remaining
   return $ filter (\i -> curWeight + weights ! i <= cap) remaining
 
 -- Calculate the bounds function
@@ -197,7 +194,7 @@ shouldPrune :: Item
             -> Solution
             -> [Item]
             -> Par PruneType
-shouldPrune i bnd (Solution mix cap _ p w) r = do
+shouldPrune i bnd (Solution mix cap _ p w) _ = do
   (profits, weights) <- io getGlobalSearchSpace
   let ub' = ub profits weights cap mix (p + profits ! i) (w + weights ! i) (i + 1)
   if fromIntegral bnd >= ub' then
