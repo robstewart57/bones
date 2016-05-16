@@ -38,10 +38,10 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 -- Argument Handling
 --------------------------------------------------------------------------------
 
-data Algorithm = SafeList
-               | BroadcastList
+data Algorithm = SafeSkeleton
+               | BroadcastSkeleton
                | SequentialSkeleton
-               | Sequential
+               | SequentialExpand
                deriving (Read, Show)
 
 data Options = Options
@@ -61,7 +61,9 @@ optionParser = Options
           <*> option auto
                 (  long "algorithm"
                 <> short 'a'
-                <> help "Which Knapsack algorithm to use: [SafeList, BitArray, SequentialSkeleton]"
+                <> help "Which Knapsack algorithm to use: \
+                       \ [SafeSkeleton, BroadcastSkeleton,\
+                       \ SequentialSkeleton, SequentialExpand]"
                 )
           <*> optional (option auto
                 (   long "spawnDepth"
@@ -186,7 +188,7 @@ main = do
       depth'            = fromMaybe 0 depth
 
   (s, tm) <- case alg of
-    SafeList -> do
+    SafeSkeleton -> do
       register $ HdpH.declareStatic <> KL.declareStatic <> Safe.declareStatic
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe items' cap depth' True)
       case sol of
@@ -194,7 +196,7 @@ main = do
             Just (KL.Solution _ _ is prof weig) ->
               return (Just (is, prof, weig), t)
 
-    BroadcastList -> do
+    BroadcastSkeleton -> do
       register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonBroadcast items' cap depth' True)
       case sol of
@@ -209,7 +211,7 @@ main = do
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ _ is prof weig) ->
               return (Just (is, prof, weig), t)
-    Sequential -> do
+    SequentialExpand -> do
       register $ HdpH.declareStatic
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.sequentialInlined items' cap)
       case sol of
