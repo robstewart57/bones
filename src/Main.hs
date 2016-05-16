@@ -160,7 +160,10 @@ orderItems its = let labeled = zip [1 .. length its] its
                  in (map compress (zip [1 .. length ordered] (map snd ordered)), permMap)
   where
     compareDensity (_, (p1,w1)) (_, (p2,w2)) =
-      compare (fromIntegral p1 / fromIntegral w1) (fromIntegral p2 / fromIntegral w2)
+      let pd x y = fromIntegral x / fromIntegral y :: Double in
+      case compare (pd p1 w1) (pd p2 w2) of
+        EQ -> compare w1 w2
+        x  -> x
 
     compress (a, (b,c)) = (a, b, c)
 
