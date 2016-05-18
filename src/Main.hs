@@ -12,6 +12,10 @@ import Control.Monad (void)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 
+import Data.Array
+
+import Data.IORef (newIORef)
+
 import Data.List  (sortBy)
 import Data.Maybe (fromMaybe)
 
@@ -23,6 +27,7 @@ import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces
 
 import qualified Knapsack as KL
 
+import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 
@@ -181,6 +186,10 @@ main = do
   let (items', permMap) = orderItems items
       depth'            = fromMaybe 0 depth
 
+  -- Initialise global data on each node
+  let its = createGlobalArrays items'
+  newIORef its >>= addGlobalSearchSpaceToRegistry
+
   (s, tm) <- case alg of
     SafeSkeleton -> do
       register $ HdpH.declareStatic <> KL.declareStatic <> Safe.declareStatic
@@ -226,3 +235,9 @@ main = do
 
       putStrLn $ "Solution: " ++ show sol
       putStrLn $ "computeTime: " ++ show tm ++ " s"
+
+createGlobalArrays :: [(Int, Integer, Integer)] -> (Array Int Integer, Array Int Integer)
+createGlobalArrays its = ( array bnds (map (\(i, p, _) -> (i, p)) its)
+                         , array bnds (map (\(i, _, w) -> (i, w)) its)
+                         )
+  where bnds = (1, length its)

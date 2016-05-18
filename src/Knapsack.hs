@@ -42,17 +42,8 @@ type Item = Int
 instance Serialize Solution where
 instance NFData Solution where
 
-createGlobalArrays :: [(Int, Integer, Integer)] -> (Array Int Integer, Array Int Integer)
-createGlobalArrays its = ( array bnds (map (\(i, p, _) -> (i, p)) its)
-                         , array bnds (map (\(i, _, w) -> (i, w)) its)
-                         )
-  where bnds = (1, length its)
-
 skeletonSafe :: [(Int, Integer, Integer)] -> Integer -> Int -> Bool -> Par Solution
-skeletonSafe items capacity depth diversify = do
-  let as = createGlobalArrays items
-  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
-
+skeletonSafe items capacity depth diversify =
   Safe.search
     diversify
     depth
@@ -72,10 +63,7 @@ skeletonSafe items capacity depth diversify = do
       $(mkClosure [| toClosureItemList |])))
 
 skeletonBroadcast :: [(Int, Integer, Integer)] -> Integer -> Int -> Bool -> Par Solution
-skeletonBroadcast items capacity depth diversify = do
-  let as = createGlobalArrays items
-  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
-
+skeletonBroadcast items capacity depth diversify =
   Broadcast.search
     depth
     (Solution (length items) capacity [] 0 0)
@@ -94,10 +82,7 @@ skeletonBroadcast items capacity depth diversify = do
       $(mkClosure [| toClosureItemList |])))
 
 skeletonSequential :: [(Int, Integer, Integer)] -> Integer -> Par Solution
-skeletonSequential items capacity = do
-  let as = createGlobalArrays items
-  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
-
+skeletonSequential items capacity =
   Sequential.search
     (Solution (length items) capacity [] 0 0)
     (map (\(a,b,c) -> a) items)
@@ -108,9 +93,7 @@ skeletonSequential items capacity = do
 -- An inlined version of the sequential skeleton
 --------------------------------------------------------------------------------
 sequentialInlined :: [(Int, Integer, Integer)] -> Integer -> Par Solution
-sequentialInlined items capacity = do
-  let as = createGlobalArrays items
-  io $ newIORef as >>= addGlobalSearchSpaceToRegistry
+sequentialInlined items capacity =
   seqSearch (Solution (length items) capacity [] 0 0) (map (\(a,b,c) -> a) items) 0
 
 -- Assumes any global space state is already initialised
