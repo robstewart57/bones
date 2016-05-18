@@ -196,7 +196,7 @@ shouldPrune :: Item
             -> Par PruneType
 shouldPrune i bnd (Solution mix cap _ p w) _ = do
   (profits, weights) <- io getGlobalSearchSpace
-  let ub' = ub profits weights cap mix (p + profits ! i) (w + weights ! i) (i + 1)
+  let ub' = ub profits weights (p + profits ! i) (w + weights ! i) (i + 1)
   if fromIntegral bnd >= ub' then
     return PruneLevel
   else
@@ -204,15 +204,14 @@ shouldPrune i bnd (Solution mix cap _ p w) _ = do
 
   where
     -- TODO: Scope capturing function
-    ub :: Array Int Integer -> Array Int Integer -> Integer -> Int -> Integer -> Integer -> Item -> Integer
-    ub profits weights cap mix p w i
-      | i > mix = p
-      | cap - (w + weights ! i) >= 0 = ub profits weights cap mix (p + profits ! i) (w + weights ! i) (i + 1)
-      | otherwise = p + floor (fromIntegral (cap - w) * divf (profits ! i) (weights ! i))
+    ub :: Array Int Integer -> Array Int Integer -> Integer -> Integer -> Item -> Double
+    ub profits weights p w i
+      | i > mix = fromIntegral p
+      | cap - (w + weights ! i) >= 0 = ub profits weights (p + profits ! i) (w + weights ! i) (i + 1)
+      | otherwise = fromIntegral p + (fromIntegral (cap - w) * divd (profits ! i) (weights ! i))
 
-    divf :: Integer -> Integer -> Float
-    divf a b = fromIntegral a / fromIntegral b
-
+    divd :: Integer -> Integer -> Double
+    divd a b = fromIntegral a / fromIntegral b
 
 shouldUpdateBound :: Integer -> Integer -> Bool
 shouldUpdateBound x y = x > y
