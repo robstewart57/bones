@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 executable bones-knapsack
   hs-source-dirs:      src
   main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -O2
+  ghc-options:         -threaded -rtsopts -O2 -funbox-strict-fields
   other-modules:       Knapsack
   build-depends:       base
                      , array                >= 0.5.1 && < 0.5.2

@@ -117,14 +117,14 @@ timeIOS = timeIO diffTimeS
 -- Parsing Knapsack files
 --------------------------------------------------------------------------------
 
-readProblem :: FilePath -> IO (Integer, Integer, [(Integer, Integer)])
+readProblem :: FilePath -> IO (Int, Int, [(Int, Int)])
 readProblem f = do
   lines <- readFile f
   case parse parseKnapsack f lines of
     Left err -> error $ "Could not parse file " ++ f ++ "." ++ show err
     Right v  -> return v
 
-parseKnapsack :: GenParser Char s (Integer, Integer, [(Integer,Integer)])
+parseKnapsack :: GenParser Char s (Int, Int, [(Int,Int)])
 parseKnapsack = do
   cap   <- parseSingleInt
   ans   <- parseSingleInt
@@ -147,13 +147,13 @@ parseKnapsack = do
 
     pint = do
       d <- many1 digit
-      return (read d :: Integer)
+      return (read d :: Int)
 
 --------------------------------------------------------------------------------
 -- Knapsack Functionality
 --------------------------------------------------------------------------------
 
-orderItems :: [(Integer, Integer)] -> ([(Int, Integer, Integer)], IntMap Int)
+orderItems :: [(Int, Int)] -> ([(Int, Int, Int)], IntMap Int)
 orderItems its = let labeled = zip [1 .. length its] its
                      ordered = sortBy (flip compareDensity) labeled
                      pairs   = zip [1 .. length its] (map fst ordered)
@@ -236,7 +236,7 @@ main = do
       putStrLn $ "Solution: " ++ show sol
       putStrLn $ "computeTime: " ++ show tm ++ " s"
 
-createGlobalArrays :: [(Int, Integer, Integer)] -> (Array Int Integer, Array Int Integer)
+createGlobalArrays :: [(Int, Int, Int)] -> (Array Int Int, Array Int Int)
 createGlobalArrays its = ( array bnds (map (\(i, p, _) -> (i, p)) its)
                          , array bnds (map (\(i, _, w) -> (i, w)) its)
                          )
