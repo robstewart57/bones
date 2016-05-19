@@ -8,9 +8,9 @@ resolver: lts-5.12
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
-- location: /home/rob/code/haskell/my-hdph/HdpH/
-    # git: git@github.com:BlairArchibald/HdpH.git
-    # commit: 51a43bd39dbbc9e3de182997752946b4f93e3550
+- location:
+    git: git@github.com:BlairArchibald/HdpH.git
+    commit: 51a43bd39dbbc9e3de182997752946b4f93e3550
   subdirs:
   - hdph
   - hdph-closure
@@ -20,9 +20,9 @@ packages:
 - location:
     git: https://github.com/haskell-distributed/network-transport.git
     commit: fb42d1ad37c20a91fb8918d0f93d59ff62a618ff
-- location: /home/rob/code/haskell/bones/
-    # git: git@github.com:BlairArchibald/bones.git
-    # commit: f3a3cc5dd5f1da7e15eacc795b875d024a53d8c4
+- location:
+    git: git@github.com:BlairArchibald/bones.git
+    commit: f3a3cc5dd5f1da7e15eacc795b875d024a53d8c4
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
