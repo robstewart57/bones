@@ -115,7 +115,7 @@ expand = go1
     go sol remaining (c:cs) = do
       bnd <- io $ readFromRegistry boundKey
 
-      sp <- {-# SCC "go.shouldPrune" #-} shouldPrune c bnd sol remaining
+      sp <- shouldPrune c bnd sol remaining
       case sp of
         Prune      -> do
           remaining'' <- removeChoice c remaining
@@ -168,7 +168,7 @@ updateLocalBoundAndSol sol bnd = do
 -- Potential choices is simply the list of un-chosen items
 generateChoices :: Solution -> [Item] -> Par [Item]
 generateChoices (Solution _ cap _ _ curWeight) remaining = do
-  (_ , weights) <- io getGlobalSearchSpace
+  (_ , weights) <- io (getGlobalSearchSpace :: IO (Array Int Int, Array Int Int))
   return $ filter (\i -> curWeight + fromIntegral (weights ! i) <= cap) remaining
 
 -- Calculate the bounds function
@@ -201,7 +201,7 @@ shouldUpdateBound x y = x > y
 
 step :: Item -> Solution -> [Item] -> Par (Solution, Int, [Item])
 step i (Solution mix cap is p w) r = do
-  (profits, weights) <- io getGlobalSearchSpace
+  (profits, weights) <- io (getGlobalSearchSpace :: IO (Array Int Int, Array Int Int))
   rm <- removeChoice i r
 
   return (Solution mix cap (i:is) (p + (profits ! i)) (w + (weights ! i)), p + (profits ! i), rm)
