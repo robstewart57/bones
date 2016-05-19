@@ -207,7 +207,7 @@ step i (Solution mix cap is p w) r = do
   return (Solution mix cap (i:is) (p + (profits ! i)) (w + (weights ! i)), p + (profits ! i), rm)
 
 removeChoice :: Item -> [Item] -> Par [Item]
-removeChoice i its = return $ {-# "removeChoice.delete" #-} delete i its
+removeChoice i its = return $ delete i its
 
 --------------------------------------------------------------------------------
 -- Closure Instances
