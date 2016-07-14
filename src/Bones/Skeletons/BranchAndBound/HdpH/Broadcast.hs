@@ -28,290 +28,108 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Util
 -- | Perform a backtracking search using a skeleton with distributed work
 -- spawning. Makes no guarantees on task ordering.
 search :: Int                               -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
-       -> a                                 -- ^ Initial solution closure
-       -> s                                 -- ^ Initial search-space closure
-       -> b                                 -- ^ Initial bounds closure
-       -> Closure (BAndBFunctions a b c s)  -- ^ Higher order B&B functions
-       -> Closure (ToCFns a b c s )         -- ^ Explicit toClosure instances
+       -> BBNode (a, b, s)                  -- ^ Root Node
+       -> Closure (BAndBFunctions a b s)    -- ^ Higher order B&B functions
+       -> Closure (ToCFns a b s)            -- ^ Explicit toClosure instances
        -> Par a                             -- ^ The resulting solution after the search completes
-search depth startingSol space bnd fs' toC = do
+search depth root space bnd fs' toC = do
   master <- myNode
   nodes  <- allNodes
 
   -- Configuration initial state
   initLocalRegistries nodes bnd toC
-  initSolutionOnMaster startingSol bnd toC
+  initSolutionOnMaster root toC
 
+  -- Gen top level
+  ts <- unClosure (orderedGenerator (unClousre fs')) root
+  let tasks = map (createChildren depth master) ts
 
-  let fs = unClosure fs'
-
-  -- Gen top level tasks
-  ts  <- (unClosure $ generateChoices fs) startingSol space
-  sr <- scanM (flip (unClosure (removeChoice fs))) space ts
-
-  let tasks = zipWith (createChildren depth master) sr ts
-  children <- mapM (spawn one) tasks
-
-  -- Wait until all children have been explored
-  mapM_ get children
+  mapM (spawn one) tasks >>= mapM_ get
 
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
-      createChildren d m rem c =
-          let choice = unClosure (toCc (unClosure toC)) c
-              sol    = unClosure (toCa (unClosure toC)) startingSol
-              space  = unClosure (toCs (unClosure toC)) rem
-          in $(mkClosure [| branchAndBoundChild (d, m, choice, sol, space, fs', toC) |])
+      createChildren d m n =
+          let n' = toClosure n
+          in $(mkClosure [| branchAndBoundChild (d, m, n', fs', toC) |])
 
 branchAndBoundChild ::
     ( Int
     , Node
-    , Closure c
-    , Closure a
-    , Closure s
-    , Closure (BAndBFunctions a b c s)
-    , Closure (ToCFns a b c s))
+    , Closure (BBNode a b s)
+    , Closure (BAndBFunction a b s)
+    , Closure (ToCFns a b s))
     -> Thunk (Par (Closure ()))
-branchAndBoundChild (spawnDepth, n, c, sol, rem, fs', toC) =
+branchAndBoundChild (spawnDepth, n, fs', toC) =
   Thunk $ do
     let fs = unClosure fs'
-    let updateBnd = updateBound $ unClosure fs'
-
     bnd <- io $ readFromRegistry boundKey
-    sp <- unClosure (shouldPrune fs) (unClosure c) bnd (unClosure sol) (unClosure rem)
+
+    sp <- unClosure (pruningPredicate fs) $ (unClosure n) (unClosure c) bnd
     case sp of
-      NoPrune -> do
-        (startingSol, _, rem') <- (unClosure $ step fs) (unClosure c) (unClosure sol) (unClosure rem)
-        let sol'   = unClosure (toCa (unClosure toC)) startingSol
-            space  = unClosure (toCs (unClosure toC)) rem'
-        branchAndBoundExpand spawnDepth n sol' space updateBnd fs' toC
-        return toClosureUnit
+      NoPrune -> branchAndBoundExpand spawnDepth n fs' toC >> return toClosureUnit
       _       -> return toClosureUnit
 
 branchAndBoundExpand ::
        Int
     -> Node
-    -> Closure a
-    -> Closure s
-    -> Closure (UpdateBoundFn b)
-    -> Closure (BAndBFunctions a b c s)
-    -> Closure (ToCFns a b c s)
+    -> Closure n
+    -> Closure (BAndBFunction a b s)
+    -> Closure (ToCFns a b s)
     -> Par ()
-branchAndBoundExpand depth parent sol rem updateBnd fs toC
+branchAndBoundExpand depth n fs toC
   | depth == 0 = let fsl  = extractBandBFunctions fs
                      toCl = extractToCFunctions toC
-                 in expandSequential parent (unClosure sol) (unClosure rem) updateBnd fsl toCl
+                 in expandSequential parent n fsl toCl
   | otherwise  = do
+        -- Duplication from the main search function, extract
         let fs' = unClosure fs
-        -- Gen top level tasks
-        cs <- (unClosure $ generateChoices fs') (unClosure sol) (unClosure rem)
+        ns <- (unClosure $ orderedGenerator fs') (unClosure n)
 
-        sr <- scanM (flip (unClosure (removeChoice fs'))) (unClosure rem) cs
-        let tasks = zipWith (createChildren (depth - 1) parent) sr cs
+        let tasks = map (createChildren (depth - 1) parent) ns
 
-        children <- mapM (spawn one) tasks
+        mapM (spawn one) tasks >>= mapM_ get children
         mapM_ get children
 
   where
-      -- TODO: Extract common functionality
-      createChildren d m rem c =
-          let choice = unClosure (toCc (unClosure toC)) c
-              -- sol'   = unClosure (toCa (unClosure toC)) sol
-              space  = unClosure (toCs (unClosure toC)) rem
-          in $(mkClosure [| branchAndBoundChild (d, m, choice, sol, space, fs, toC) |])
+      createChildren d m n =
+          let n' = toClosure n
+          in $(mkClosure [| branchAndBoundChild (d, m, n', fs, toC) |])
 
+-- TODO: This will be the same in all cases, move to common?
 expandSequential ::
        Node
        -- ^ Master node (for transferring new bounds)
-    -> a
-       -- ^ Current solution
-    -> s
-       -- ^ Current search-space
-    -> Closure (UpdateBoundFn b)
-       -- ^ Higher order B&B functions
+    -> BBNode a b s
+       -- ^ Root node for this (sub-tree) search
     -> BAndBFunctionsL a b c s
        -- ^ Pre-unclosured local function variants
     -> ToCFnsL a b c s
        -- ^ Explicit toClosure instances
     -> Par ()
        -- ^ Side-effect only function
-expandSequential parent sol remaining updateBnd fsl toCL = expand sol remaining
+-- Be careful of n aliasing
+expandSequential parent n' fsl toCL = expand n'
     where
-      expand s r = generateChoicesL fsl s r >>= go s r
+      expand n = orderedGeneratorL fsl n >>= go
 
-      go _ _ [] = return ()
+      go [] = return ()
 
-      go sol remaining (c:cs) = do
+      go (n@(sol, bndl, space):ns) = do
         bnd <- io $ readFromRegistry boundKey
 
-        sp <- shouldPruneL fsl c bnd sol remaining
+        sp <- pruningPredicateL fsl n bnd
         case sp of
-          Prune      -> do
-            remaining'' <- removeChoiceL fsl c remaining
-            go sol remaining'' cs
-
+          Prune      -> go ns
           PruneLevel -> return ()
-
           NoPrune    -> do
-            (newSol, newBnd, remaining') <- stepL fsl c sol remaining
-
-            when (updateBoundL fsl newBnd bnd) $ do
+            when (strengthenL fsl n)
                 let cSol = toCaL toCL newSol
                     cBnd = toCbL toCL newBnd
-                updateLocalBounds newBnd (updateBoundL fsl)
+                updateLocalBounds n (strengthenL fsl)
+                -- Figure out how to avoid sending the whole node here, we only need the solution and the bound.
                 notifyParentOfNewBound parent (cSol, cBnd) updateBnd
 
-            expand newSol remaining'
-
-            remaining'' <- removeChoiceL fsl c remaining
-            go sol remaining'' cs
-
----------------------------------------------------------------------------------
--- Skeleton with early exit semantics. Stop when a solution is found (if one exists)
----------------------------------------------------------------------------------
-
--- findSolution :: Int
---              -> Closure a
---              -> Closure s
---              -> Closure b
---              -> Closure (BAndBFunctions a b c s)
---              -> Par a
--- findSolution depth startingSol space bnd fs' = do
---   master <- myNode
---   ns     <- allNodes
-
---   found  <- new
-
---   initLocalRegistries ns found
-
---   let fs = unClosure fs'
-
---   -- Gen at top level
---   ts   <- (unClosure $ generateChoices fs) startingSol space
-
---   -- Generating the starting tasks remembering to remove choices from their left
---   -- from the starting "remaining" set
-
---   sr <- scanM (flip (unClosure (removeChoice fs))) space ts
---   let tasks = zipWith (createChildren depth master) sr ts
-
---   children <- mapM (spawn one) tasks
-
---   -- Thread to check if we terminate without finding a solution
---   fork $ checkTerm children found
-
---   -- Block until either we find a solution or all tasks have terminated
---   _ <- get found
-
---   io $ unClosure . fst <$> readFromRegistry solutionKey
---     where
---       initLocalRegistries nodes fnd = do
---         io $ addToRegistry solutionKey (startingSol, bnd)
---         io $ addToRegistry solutionSignalKey fnd
---         forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
-
---       createChildren d m rem c =
---           $(mkClosure [| branchAndBoundFindChild (d, m, c, startingSol, rem, fs') |])
-
---       checkTerm ts fnd = mapM_ get ts >> put fnd ()
-
--- branchAndBoundFindChild ::
---     ( Int
---     , Node
---     , Closure c
---     , Closure a
---     , Closure s
---     , Closure (BAndBFunctions a b c s)
---     )
---     -> Thunk (Par (Closure ()))
--- branchAndBoundFindChild (spawnDepth, n, c, sol, rem, fs') =
---   Thunk $ do
---     let fs = unClosure fs'
-
---     bnd <- io $ readFromRegistry boundKey
---     sp <- unClosure (shouldPrune fs) c bnd sol rem
---     case sp of
---       NoPrune -> do
---         (startingSol, _, rem') <- (unClosure $ step fs) c sol rem
---         branchAndBoundFindExpand spawnDepth n startingSol rem' fs'
---         return unitClosure
---       _ -> return unitClosure
-
--- branchAndBoundFindExpand ::
---        Int
---     -> Node
---     -> Closure a
---     -> Closure s
---     -> Closure (BAndBFunctions a b c s)
---     -> Par ()
--- branchAndBoundFindExpand depth parent sol rem fs' = do
---   let fs  = unClosure fs'
-
---   choices <- (unClosure $ generateChoices fs) sol rem
-
---   go depth sol rem choices fs
---     where go depth sol remaining [] fs      = return ()
-
---           go 0 sol remaining (c:cs) fs  = do
---             bnd <- io $ readFromRegistry boundKey
-
---             sp <- unClosure (shouldPrune fs) c bnd sol rem
---             case sp of
---               NoPrune -> do
---                 (newSol, newBnd, remaining') <- (unClosure $ step fs) c sol remaining
-
---                 when ((unClosure $ updateBound fs) newBnd bnd) $ do
---                   bAndbFind_notifyParentOfNewBest parent (newSol, newBnd) fs'
-
---                 branchAndBoundFindExpand depth parent newSol remaining' fs'
-
---                 remaining'' <- unClosure (removeChoice fs) c remaining
---                 go 0 sol remaining'' cs fs
-
---               Prune -> do
---                 remaining'' <- unClosure (removeChoice fs) c remaining
---                 go 0 sol remaining'' cs fs
-
---               PruneLevel -> return ()
-
---            -- Spawn New Tasks
---           go depth sol remaining cs fs = do
---             sr <- scanM (flip (unClosure (removeChoice fs))) remaining cs
---             let tasks = zipWith (createChildren (depth - 1) parent) sr cs
-
---             children <- mapM (spawn one) tasks
---             mapM_ get children
-
---           createChildren sdepth m rem c =
---             $(mkClosure [| branchAndBoundFindChild (sdepth, m, c, sol, rem, fs') |])
-
--- bAndbFind_notifyParentOfNewBest :: Node
---                             -> (Closure a, Closure b)
---                             -> Closure (BAndBFunctions a b c s)
---                             -> Par ()
--- bAndbFind_notifyParentOfNewBest parent solPlusBnd fs = do
---   -- Wait for an update ack to avoid a race condition in the case when all
---   -- children finish before the final updateBest task has ran on master.
---   spawnAt parent updateFn  >>= get
---   return ()
-
---   where updateFn = $(mkClosure [| bAndbFind_updateParentBest (solPlusBnd, fs) |])
-
--- bAndbFind_updateParentBest :: ( (Closure a, Closure b)
---                           , Closure (BAndBFunctions a b c s))
---                        -> Thunk (Par (Closure ()))
--- bAndbFind_updateParentBest ((sol, bnd), fs) = Thunk $ do
---   ref <- io $ getRefFromRegistry solutionKey
---   updated <- io $ atomicModifyIORef' ref $ \prev@(oldSol, b) ->
---                 if (unClosure $ updateBound (unClosure fs)) bnd b
---                     then ((sol, bnd), True)
---                     else (prev      , False)
-
---   when updated $ do
---     fnd <- io $ readFromRegistry solutionSignalKey
---     put fnd () -- Signal early exit
-
---   return unitClosure
+            expand n >> go ns
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl
@@ -319,11 +137,6 @@ declareStatic = mconcat
   [
     declare $(static 'branchAndBoundChild)
   , declare $(static 'initRegistryBound)
-
-  -- Decision Problem Skeleton
-  -- , declare $(static 'branchAndBoundFindChild)
-  -- , declare $(static 'bAndbFind_updateParentBest)
-
   , Common.declareStatic
   , Types.declareStatic
   ]

@@ -32,13 +32,13 @@ import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 -- | Ensure the initial solution is set on the master node. This is important
 -- for ensuring there is a value to get (even if it is empty) at the end of the
 -- run.
-initSolutionOnMaster :: a -- ^ Starting Solution
-                     -> b -- ^ Starting Bound
+initSolutionOnMaster :: BBNode a b s
                      -> Closure (ToCFns a b s) -- ^ Explicit toClosure instances
                      -> Par () -- ^ Side-effect only
-initSolutionOnMaster sol bnd toC =
+initSolutionOnMaster n toC =
   let toCsol = unClosure (toCa (unClosure toC))
-      solC   = toCsol sol
+      solC   = toCsol $ solution n
+      bnd    =  bound n
       -- We keep solutions in closure form until we ask for them. Bounds are
       -- kept unClosured for faster comparison.
   in io $ addToRegistry solutionKey (solC, bnd)
@@ -47,8 +47,8 @@ initSolutionOnMaster sol bnd toC =
 updateLocalBounds :: Node a b s
                   -- ^ New bound
                   -- Probably need the strengthen?
-                  -> BBNode a b s -> b -> Bool
-                  -- ^ Functions (to access updateBound function)
+                  -> BBnode a b s -> b -> bool
+                  -- ^ functions (to access updateBound function)
                   -> Par ()
                   -- ^ Side-effect only function
 updateLocalBounds bnd updateB = do
