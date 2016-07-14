@@ -14,13 +14,22 @@ import           Data.Serialize        (Serialize)
 import           GHC.Generics          (Generic)
 
 -- Functions required to specify a B&B computation
-type Node a b s = (a, b, s)
+type BBNode a b s = (a, b, s)
+
+bound :: BBNode a b s -> b
+bound = snd
+
+solution :: BBNode a b s -> a
+solution = fst
+
+subspace :: BBNode a b s -> s
+subspace (_, _, s) -> s
 
 data BAndBFunctions a b s =
   BAndBFunctions
-    { orderedGenerator :: Closure (Node -> Par [Node])
-    , pruningPredicate :: Closure (Node -> b -> Par PruneType)
-    , strengthen       :: Closure (Node -> b -> Par Bool)
+    { orderedGenerator :: Closure (BBNode -> Par [BBNode])
+    , pruningPredicate :: Closure (BBNode -> b -> Par PruneType)
+    , strengthen       :: Closure (BBNode -> b -> Bool)
     } deriving (Generic)
 
 data ToCFns a b s =
@@ -32,9 +41,9 @@ data ToCFns a b s =
 
 data BAndBFunctionsL a b s =
   BAndBFunctionsL
-    { orderedGeneratorL :: Node -> Par [Node]
-    , pruningPredicateL :: Node -> b -> Par PruneType
-    , strengthenL       :: Node -> b -> Par Bool
+    { orderedGeneratorL :: BBNode -> Par [BBNode]
+    , pruningPredicateL :: BBNode -> b -> Par PruneType
+    , strengthenL       :: BBNode -> b -> Par Bool
     } deriving (Generic)
 
 data ToCFnsL a b s =
