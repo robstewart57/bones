@@ -14,47 +14,41 @@ import           Data.Serialize        (Serialize)
 import           GHC.Generics          (Generic)
 
 -- Functions required to specify a B&B computation
-data BAndBFunctions a b c s =
+type Node a b s = (a, b, s)
+
+data BAndBFunctions a b s =
   BAndBFunctions
-    { generateChoices :: Closure (a -> s -> Par [c])
-    , shouldPrune     :: Closure (c -> b -> a -> s -> Par PruneType)
-    , updateBound     :: Closure (b -> b -> Bool)
-    , step            :: Closure (c -> a -> s -> Par (a, b, s))
-    , removeChoice    :: Closure (c -> s-> Par s)
+    { orderedGenerator :: Closure (Node -> Par [Node])
+    , pruningPredicate :: Closure (Node -> b -> Par PruneType)
+    , strengthen       :: Closure (Node -> b -> Par Bool)
     } deriving (Generic)
 
-data ToCFns a b c s =
+data ToCFns a b s =
   ToCFns
     { toCa :: Closure (a -> Closure a)
     , toCb :: Closure (b -> Closure b)
-    , toCc :: Closure (c -> Closure c)
     , toCs :: Closure (s -> Closure s)
     } deriving (Generic)
 
-type UpdateBoundFn b = b -> b -> Bool
-
-data BAndBFunctionsL a b c s =
+data BAndBFunctionsL a b s =
   BAndBFunctionsL
-    { generateChoicesL :: a -> s -> Par [c]
-    , shouldPruneL     :: c -> b -> a -> s -> Par PruneType
-    , updateBoundL     :: b -> b -> Bool
-    , stepL            :: c -> a -> s -> Par (a, b, s)
-    , removeChoiceL    :: c -> s -> Par s
+    { orderedGeneratorL :: Node -> Par [Node]
+    , pruningPredicateL :: Node -> b -> Par PruneType
+    , strengthenL       :: Node -> b -> Par Bool
     } deriving (Generic)
 
-data ToCFnsL a b c s =
+data ToCFnsL a b s =
   ToCFnsL
     { toCaL :: a -> Closure a
     , toCbL :: b -> Closure b
-    , toCcL :: c -> Closure c
     , toCsL :: s -> Closure s
     } deriving (Generic)
 
-instance NFData (BAndBFunctions a b c s)
-instance Serialize (BAndBFunctions a b c s)
+instance NFData (BAndBFunctions a b s)
+instance Serialize (BAndBFunctions a b s)
 
-instance NFData (ToCFns a b c s)
-instance Serialize (ToCFns a b c s)
+instance NFData (ToCFns a b s)
+instance Serialize (ToCFns a b s)
 
 data PruneType = NoPrune | Prune | PruneLevel
 
@@ -67,15 +61,15 @@ unit = ()
 --------------------------------------------------------------------------------
 -- Type Utility Functions
 --------------------------------------------------------------------------------
-extractBandBFunctions :: Closure (BAndBFunctions a b c s) -> BAndBFunctionsL a b c s
+extractBandBFunctions :: Closure (BAndBFunctions a b s) -> BAndBFunctionsL a b s
 extractBandBFunctions fns =
-  let BAndBFunctions !a !b !c !d !e = unClosure fns
-  in  BAndBFunctionsL (unClosure a) (unClosure b) (unClosure c) (unClosure d) (unClosure e)
+  let BAndBFunctions !a !b !c = unClosure fns
+  in  BAndBFunctionsL (unClosure a) (unClosure b) (unClosure c)
 
 extractToCFunctions :: Closure (ToCFns a b c s) -> ToCFnsL a b c s
 extractToCFunctions fns =
-  let ToCFns !a !b !c !d = unClosure fns
-  in  ToCFnsL (unClosure a) (unClosure b) (unClosure c) (unClosure d)
+  let ToCFns !a !b !c = unClosure fns
+  in  ToCFnsL (unClosure a) (unClosure b) (unClosure c)
 
 -- Static Information
 $(return []) -- TH Workaround
