@@ -34,7 +34,7 @@ import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 -- run.
 initSolutionOnMaster :: a -- ^ Starting Solution
                      -> b -- ^ Starting Bound
-                     -> Closure (ToCFns a b c s ) -- ^ Explicit toClosure instances
+                     -> Closure (ToCFns a b s) -- ^ Explicit toClosure instances
                      -> Par () -- ^ Side-effect only
 initSolutionOnMaster sol bnd toC =
   let toCsol = unClosure (toCa (unClosure toC))
@@ -44,9 +44,10 @@ initSolutionOnMaster sol bnd toC =
   in io $ addToRegistry solutionKey (solC, bnd)
 
 -- | Update local bounds
-updateLocalBounds :: b
+updateLocalBounds :: Node a b s
                   -- ^ New bound
-                  -> UpdateBoundFn b
+                  -- Probably need the strengthen?
+                  -> BBNode a b s -> b -> Bool
                   -- ^ Functions (to access updateBound function)
                   -> Par ()
                   -- ^ Side-effect only function
@@ -55,7 +56,7 @@ updateLocalBounds bnd updateB = do
   io $ atomicModifyIORef' ref $ \b ->
     if updateB bnd b then (bnd, ()) else (b, ())
 
-updateLocalBoundsT :: (Closure b, Closure (UpdateBoundFn b))
+updateLocalBoundsT :: (Closure (BBNode a b s), Closure (BBNode a b s -> b -> Bool))
                    -> Thunk (Par ())
 updateLocalBoundsT (bnd, bndfn) = Thunk $ updateLocalBounds (unClosure bnd) (unClosure bndfn)
 
@@ -63,34 +64,34 @@ updateLocalBoundsT (bnd, bndfn) = Thunk $ updateLocalBounds (unClosure bnd) (unC
 --   additional messages.
 notifyParentOfNewBound :: Node
                        -- ^ Master node
-                       -> (Closure a, Closure b)
+                       -> Closure (BBNode a b s)
                        -- ^ (Solution, Bound)
-                       -> Closure (UpdateBoundFn b)
-                       -- ^ B&B Functions
+                       -> Closure (BBNode a b s -> b -> Bool)
+                       -- ^ Strengthen Function
                        -> Par ()
                        -- ^ Side-effect only function
-notifyParentOfNewBound parent solPlusBnd fs = do
+notifyParentOfNewBound parent n fs = do
   -- We wait for an ack (get) to avoid a race condition where all children
   -- finish before the final updateBest task is ran on the master node.
-  spawnAt parent $(mkClosure [| updateParentBoundT (solPlusBnd, fs) |]) >>= get
+  spawnAt parent $(mkClosure [| updateParentBoundT (n, fs) |]) >>= get
   return ()
 
 -- | Update the global solution with the new solution. If this succeeds then
 --   tell all other nodes to update their local information.
-updateParentBoundT :: ((Closure a, Closure b), Closure (UpdateBoundFn b))
-                     -- ^ ((newSol, newBound), UpdateBound)
-                  -> Thunk (Par (Closure ()))
+updateParentBoundT :: (Closure (BBNode a b s), Closure (BBNode a b s -> b -> Bool))
+                     -- ^ (Node, UpdateBound)
+                     -> Thunk (Par (Closure ()))
                      -- ^ Side-effect only function
-updateParentBoundT ((sol, bnd), updateB) = Thunk $ do
+updateParentBoundT (n, strengthn) = Thunk $ do
   ref     <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if unClosure updateB (unClosure bnd) b
+                if unClosure stengthn (unClosure n) b
                     then ((sol, unClosure bnd), True)
                     else (prev                , False)
 
   when updated $ do
     ns <- allNodes
-    mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (bnd, updateB) |])) ns
+    mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (n, strengthn) |])) ns
 
   return toClosureUnit
 
