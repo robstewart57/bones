@@ -27,9 +27,9 @@ subspace (_, _, s) -> s
 
 data BAndBFunctions a b s =
   BAndBFunctions
-    { orderedGenerator :: Closure (BBNode -> Par [BBNode])
-    , pruningPredicate :: Closure (BBNode -> b -> Par PruneType)
-    , strengthen       :: Closure (BBNode -> b -> Bool)
+    { orderedGenerator :: Closure (BBNode a b s -> Par [BBNode a b s])
+    , pruningPredicate :: Closure (BBNode a b s -> b -> Par PruneType)
+    , strengthen       :: Closure (BBNode a b s -> b -> Bool)
     } deriving (Generic)
 
 data ToCFns a b s =
@@ -41,9 +41,9 @@ data ToCFns a b s =
 
 data BAndBFunctionsL a b s =
   BAndBFunctionsL
-    { orderedGeneratorL :: BBNode -> Par [BBNode]
-    , pruningPredicateL :: BBNode -> b -> Par PruneType
-    , strengthenL       :: BBNode -> b -> Par Bool
+    { orderedGeneratorL :: BBNode a b s -> Par [BBNode a b s]
+    , pruningPredicateL :: BBNode a b s -> b -> Par PruneType
+    , strengthenL       :: BBNode a b s -> b -> Par Bool
     } deriving (Generic)
 
 data ToCFnsL a b s =
