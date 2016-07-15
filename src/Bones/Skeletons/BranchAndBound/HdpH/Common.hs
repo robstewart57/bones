@@ -7,6 +7,9 @@ module Bones.Skeletons.BranchAndBound.HdpH.Common
   -- Initialisation
   initSolutionOnMaster
 
+  -- Main recursive algorithm
+  , expandSequential
+
   -- State Updates
   , updateLocalBounds
   , notifyParentOfNewBound
@@ -94,6 +97,42 @@ updateParentBoundT (n, strengthn) = Thunk $ do
     mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (n, strengthn) |])) ns
 
   return toClosureUnit
+
+expandSequential ::
+       Node
+       -- ^ Master node (for transferring new bounds)
+    -> BBNode a b s
+       -- ^ Root node for this (sub-tree) search
+    -> BAndBFunctionsL a b c s
+       -- ^ Pre-unclosured local function variants
+    -> ToCFnsL a b c s
+       -- ^ Explicit toClosure instances
+    -> Par ()
+       -- ^ Side-effect only function
+-- Be careful of n aliasing
+expandSequential parent n' fsl toCL = expand n'
+    where
+      expand n = orderedGeneratorL fsl n >>= go
+
+      go [] = return ()
+
+      go (n@(sol, bndl, space):ns) = do
+        bnd <- io $ readFromRegistry boundKey
+
+        sp <- pruningPredicateL fsl n bnd
+        case sp of
+          Prune      -> go ns
+          PruneLevel -> return ()
+          NoPrune    -> do
+            when (strengthenL fsl n)
+                let cSol = toCaL toCL newSol
+                    cBnd = toCbL toCL newBnd
+                updateLocalBounds n (strengthenL fsl)
+                -- Figure out how to avoid sending the whole node here, we only need the solution and the bound.
+                notifyParentOfNewBound parent (cSol, cBnd) updateBnd
+
+            expand n >> go ns
+
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl

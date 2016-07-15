@@ -41,12 +41,7 @@ data Task c a s = Task
   , resultG   :: GIVar (Closure ())
   , comp      :: Closure (Par (Closure ()))
     -- ^ The search computation to run (already initialised with variables)
-  , choice    :: c
-    -- ^ Choice variable (for running sequentially)
-  , solution  :: a
-    -- ^ Solution variable (for running sequentially)
-  , space     :: s
-    -- ^ Space variable (for running sequentially)
+  , node      :: NodeBB a b s
   }
 
 --------------------------------------------------------------------------------
@@ -59,25 +54,23 @@ data Task c a s = Task
 -- (1) Never slower than a sequential run of the same skeleton
 -- (2) Adding more workers does not slow down the computation
 -- (3) Results should have low variance allowing them to be reproducible
-search :: Bool                              -- ^ Should discrepancy search be used? Else spawn tasks linearly, left to right.
-       -> Int                               -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
-       -> a                                 -- ^ Initial solution closure
-       -> s                                 -- ^ Initial search-space closure
-       -> b                                 -- ^ Initial bounds closure
-       -> Closure (BAndBFunctions a b c s)  -- ^ Higher order B&B functions
-       -> Closure (ToCFns a b c s )         -- ^ Explicit toClosure instances
-       -> Par a                             -- ^ The resulting solution after the search completes
-search diversify spawnDepth startingSol startingSpace bnd fs toC = do
+search :: Bool                            -- ^ Should discrepancy search be used? Else spawn tasks linearly, left to right.
+       -> Int                             -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
+       -> NodeBB a b s                    -- ^ Initial root search node
+       -> Closure (BAndBFunctions a b s)  -- ^ Higher order B&B functions
+       -> Closure (ToCFns a b s)          -- ^ Explicit toClosure instances
+       -> Par a                           -- ^ The resulting solution after the search completes
+search diversify spawnDepth root fs toC = do
   master <- myNode
   nodes  <- allNodes
 
   -- Configuration initial state
   initLocalRegistries nodes bnd toC
-  initSolutionOnMaster startingSol bnd toC
+  initSolutionOnMaster root toC
 
   -- Construct task parameters and priorities
   -- Hard-coded to spawn only leaf tasks (for now)
-  taskList  <- createTasksToDepth master spawnDepth startingSol startingSpace fs toC
+  taskList  <- createTasksToDepth master spawnDepth root fs toC
 
   -- Register tasks with HdpH
   spawnTasks taskList
@@ -109,7 +102,7 @@ search diversify spawnDepth startingSol startingSpace bnd fs toC = do
          then spinGet (resultM task)
          else do
           put (isStarted task) toClosureUnit
-          safeBranchAndBoundSkeletonChild (choice task) master (solution task) (space task) updateB fsl toCl
+          safeBranchAndBoundSkeletonChild master (node task) updateB fsl toCl
           put (resultM task) toClosureUnit
           return toClosureUnit
 
@@ -139,60 +132,43 @@ createTasksToDepth :: Node
                    -- ^ The master node which stores the global bound
                    -> Int
                    -- ^ Depth to spawn to. Depth = 0 implies top level only.
-                   -> a
-                   -- ^ Initial solution
-                   -> s
-                   -- ^ Initial search-space
-                   -> Closure (BAndBFunctions a b c s)
+                   -> NodeBB a b s
+                   -- ^ Starting node to branch from
+                   -> Closure (BAndBFunctions a b s)
                    -- ^ Higher Order B&B functions
-                   -> Closure (ToCFns a b c s)
+                   -> Closure (ToCFns a b s)
                    -- ^ Explicit toClosure instances
                    -> Par [Task c a s]
 createTasksToDepth master depth ssol sspace fs toC' =
   go depth 1 0 ssol sspace (extractBandBFunctions fs) (extractToCFunctions toC')
   where
-    go d i parentP sol space fns toC
+    go d i parentP n fns toC
          | d == 0 = do
-             cs <- generateChoicesL fns sol space
-             spaces <- scanM (flip (removeChoiceL fns)) space cs
-
-             zipWithM3 (\p c s -> createTask toC (parentP + p, (c, sol, s))) (0 : inc i) cs spaces
+             ns <- orderedGeneratorL fns n
+             zipWithM (\p n' -> createTask toC (parentP + p), n') (0 : inc i) ns
          | otherwise = do
-             cs     <- generateChoicesL fns sol space
-             spaces <- scanM (flip (removeChoiceL fns)) space cs
-             let ts = zip3 ((0 :: Int) : inc i) cs spaces
+             ns <- orderedGeneratorL fns n
+             let ts = zip3 ((0 :: Int) : inc i) ns
 
-             -- We can either create tasks at all nodes or wait until we reach
-             -- the leaf nodes (spawn-depth) before creating Both methods have
-             -- different effects on the overall search ordering.
-             xs <- forM ts $ \(p,c,s) -> do
-                        (sol', _, space') <- stepL fns c sol s
-                        go (d - 1) (i * 2) (parentP + p) sol' space' fns toC
+             xs <- forM ts $ \(p, n') -> do
+                        go (d - 1) (i * 2) (parentP + p) n' fns toC
 
              return (concat xs)
 
-    createTask toC (p, (c,s,r)) = do
+    createTask toC (p, n) = do
        taken <- new
        g <- glob taken
        resMaster <- new
        resG <- glob resMaster
 
-       let sol    = toCaL toC s
-           rem    = toCsL toC r
-           choice = toCcL toC c
-
        let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
-                                                                      , choice
                                                                       , master
-                                                                      , sol
-                                                                      , rem
+                                                                      , n
                                                                       , fs
                                                                       , toC'
                                                                       ) |])
 
-       return (Task p taken resMaster resG task c s r)
-
-    zipWithM3 f xs ys zs = sequence (zipWith3 f xs ys zs)
+       return $ Task p taken resMaster resG task n
 
     inf x = x : inf x
 
@@ -212,15 +188,13 @@ spinGet v = do
 --   working on this branch. If it hasn't start searching the subtree.
 safeBranchAndBoundSkeletonChildTask ::
     ( GIVar (Closure ())
-    , Closure c
     , Node
-    , Closure a
-    , Closure s
-    , Closure (BAndBFunctions a b c s)
-    , Closure (ToCFns a b c s))
+    , Closure (NodeBB a b s)
+    , Closure (BAndBFunctions a b s)
+    , Closure (ToCFns a b s))
     -- TODO: Do I really need closures here? I guess to write into the IVar
     -> Thunk (Par (Closure ()))
-safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs, toC) =
+safeBranchAndBoundSkeletonChildTask (taken, parent, n, fs, toC) =
   Thunk $ do
     -- Notify the parent that we are starting this task. TryRPut returns true if
     -- the IVar was free and write was successful, else false
@@ -230,252 +204,26 @@ safeBranchAndBoundSkeletonChildTask (taken, c, n, sol, remaining, fs, toC) =
         let fsL      = extractBandBFunctions fs
             toCl     = extractToCFunctions toC
             !updateB = updateBound (unClosure fs)
-        in safeBranchAndBoundSkeletonChild (unClosure c) n (unClosure sol) (unClosure remaining) updateB fsL toCl
+        in safeBranchAndBoundSkeletonChild parent n updateB fsL toCl
       else
         return toClosureUnit
 
 safeBranchAndBoundSkeletonChild ::
-       c
     -> Node
-    -> a
-    -> s
+    -> NodeBB a b s
     -> Closure (UpdateBoundFn b)
-    -> BAndBFunctionsL a b c s
-    -> ToCFnsL a b c s
+    -> BAndBFunctionsL a b s
+    -> ToCFnsL a b s
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild c parent sol remaining updateB fsl toCL = do
+safeBranchAndBoundSkeletonChild parent n updateB fsl toCL = do
     bnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
-    sp <- shouldPruneL fsl c bnd sol remaining
+    sp <- pruningPredicate fsl n bnd
     case sp of
-      NoPrune -> do
-       (startingSol, _, remaining') <- stepL fsl c sol remaining
-       safeBranchAndBoundSkeletonExpand parent startingSol remaining' updateB fsl toCL
-       return toClosureUnit
+      NoPrune -> expandSequential parent n fsl toCL >> return toClosureUnit
       _       -> return toClosureUnit
 
--- | Main search function. Performs a backtracking search using the user
---  specified functions.
-safeBranchAndBoundSkeletonExpand ::
-       Node
-       -- ^ Master node (for transferring new bounds)
-    -> a
-       -- ^ Current solution
-    -> s
-       -- ^ Current search-space
-    -> Closure (UpdateBoundFn b)
-       -- ^ Higher order B&B functions
-    -> BAndBFunctionsL a b c s
-       -- ^ Pre-unclosured local function variants
-    -> ToCFnsL a b c s
-       -- ^ Explicit toClosure instances
-    -> Par ()
-       -- ^ Side-effect only function
-safeBranchAndBoundSkeletonExpand parent sol remaining updateBnd fsl toCL = expand sol remaining
-    where
-      expand s r = generateChoicesL fsl s r >>= go s r
-
-      go _ _ [] = return ()
-
-      go sol remaining (c:cs) = do
-        bnd <- io $ readFromRegistry boundKey
-
-        sp <- shouldPruneL fsl c bnd sol remaining
-        case sp of
-          Prune      -> do
-            remaining'' <- removeChoiceL fsl c remaining
-            go sol remaining'' cs
-
-          PruneLevel -> return ()
-
-          NoPrune    -> do
-            (newSol, newBnd, remaining') <- stepL fsl c sol remaining
-
-            when (updateBoundL fsl newBnd bnd) $ do
-                let cSol = toCaL toCL newSol
-                    cBnd = toCbL toCL newBnd
-                updateLocalBounds newBnd (updateBoundL fsl)
-                notifyParentOfNewBound parent (cSol, cBnd) updateBnd
-
-            expand newSol remaining'
-
-            remaining'' <- removeChoiceL fsl c remaining
-            go sol remaining'' cs
-
---------------------------------------------------------------------------------
--- Skeleton making use of Dynamic work generation. NOT COMPLETE
---------------------------------------------------------------------------------
-
--- Skeleton which attempts to keep "activeTasks" tasks available without
--- generating all work ahead of time
-{-
-searchDynamic :: Int
-              -> Int
-              -> Closure a
-              -> Closure s
-              -> Closure b
-              -> Closure (BAndBFunctions a b c s)
-              -> Par a
-searchDynamic activeTasks spawnDepth startingSol space bnd fs = do
-  let fs' = unClosure fs
-
-  allNodes >>= initRegistries
-
-  -- Get top level choices
-  searchSpace <- io $ readFromRegistry searchSpaceKey
-  cs <- (unClosure $ generateChoices fs') searchSpace space
-
-  -- Sequentially execute tasks up to depth d.
-  myNode >>= spawnAndExecuteTasks cs fs'
-
-  -- Return the result stored in the global bound as the answer
-  io $ unClosure . fst <$> readFromRegistry solutionKey
-    where
-      initRegistries nodes = do
-        io $ addToRegistry solutionKey (startingSol, bnd)
-        forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd |]) n
-
-      spawnAndExecuteTasks choices fs' master  = do
-
-        spaces <- scanM (flip (unClosure (removeChoice fs'))) space choices
-        let topLevelChoices = zip3 choices (replicate (length spaces) startingSol) spaces
-
-        -- Channels may block the scheduler, issue with scheds=1
-        taskQueue <- io newTChanIO
-
-        fork $ taskGenerator topLevelChoices master spawnDepth fs taskQueue activeTasks
-
-        let fsl     = extractBandBFunctions fs
-            updateB = updateBound (unClosure fs)
-        handleTasks master fsl updateB taskQueue
-
-      handleTasks m fsl updateB tq = do
-        t <- io . atomically $ readTChan tq
-        case t of
-          TaskD (taken, res, c, sol, rem) -> do
-            wasTaken <- probe taken
-            if wasTaken
-            then spinGet res >> handleTasks m fsl updateB tq
-            else do
-              put taken unitClosure
-              safeBranchAndBoundSkeletonChild c m sol rem updateB fsl
-              handleTasks m fsl updateB tq
-          Done -> return unitClosure
-
-data TaskD a = TaskD a | Done deriving (Show)
-
-taskGenerator ::
-     [(Closure c, Closure a, Closure s)]
-  -> Node
-  -> Int
-  -> Closure (BAndBFunctions a b c s)
-  -> TChan (TaskD (IVar (Closure ()), IVar (Closure ()), Closure c, Closure a, Closure s))
-  -> Int
-  -> Par ()
-taskGenerator toplvl m depth fs tq n = do
-  -- Keep generating tasks such that we keep N tasks active if possible
-  -- Idea is to just call spawnAtDepthLazy and let lazyness do it's thing
-
-   -- Take N to start with
-  ts <- spawnAtDepthLazy toplvl m depth fs
-  let startingTasks = take n ts
-      remainingTasks = drop n ts
-
-  st <- catMaybes <$> sequence startingTasks
-
-  (nextP, signals, tasks) <- foldM spawnTasksWithPrios (1, [], []) st
-
-  -- Give the tasks to the master
-  mapM_ (io . atomically . writeTChan tq . TaskD) tasks
-
-  generateNewTasks remainingTasks signals nextP
-
-  where
-      spawnTasksWithPrios (p, ts, lst) (taken, task, c, sol, rem) =
-        spawnWithPrio one p task >>= \res -> return (p + 1, taken:ts, (taken, res, c, sol, rem):lst)
-
-      spawnTaskWithPrio p (taken, task, c, sol, rem) =
-        spawnWithPrio one p task >>= \res -> return (p + 1, taken, (taken, res, c, sol, rem))
-
-      generateNewTasks taskList takenSignals prio = do
-
-        signalList <- getAny takenSignals
-
-        -- SpawnNewTask always gets a task when one is available
-        (task, tl) <- spawnNewTask taskList
-        case task of
-          Just t -> do
-            (prio', s, t') <- spawnTaskWithPrio prio t
-            io . atomically $ writeTChan tq (TaskD t')
-            generateNewTasks tl (s:signalList) prio'
-          Nothing -> io . atomically $ writeTChan tq Done
-
-      spawnNewTask tl =
-        case tl of
-          (t:ts) -> do
-            t' <- t
-            case t' of
-              Just x   -> return (Just x, ts)
-              Nothing  -> spawnNewTask ts
-          [] -> return (Nothing, [])
-
-      -- Not sure how efficient this is due to the cyclic appending, it could be a bottleneck?
-      -- Zippers might be a better choice here
-      getAny [] = return []
-
-      getAny (x:xs)= do
-        filled <- probe x
-        if filled then return xs else getAny (xs ++ [x])
-
-
-spawnAtDepthLazy ::
-              [(Closure c, Closure a, Closure s)]
-           -> Node
-           -> Int
-           -> Closure (BAndBFunctions a b c s)
-           -> Par [Par (Maybe (IVar (Closure ()), Closure (Par (Closure())), Closure c, Closure a, Closure s))]
-spawnAtDepthLazy ts master curDepth fs
-  | curDepth == 0 = return $ map makeTask ts
-  | otherwise = do
-      step     <- catMaybes <$> mapM stepSol ts
-      newLevel <- mapM constructChoices step
-      concat <$> mapM (\ts' -> spawnAtDepthLazy ts' master (curDepth - 1) fs) newLevel
-  where
-       stepSol (c, sol, remaining) = do
-        let fs' = unClosure fs
-
-        (sol', _, remaining') <- (unClosure $ step fs') c sol remaining
-        return $ Just (sol', remaining')
-
-       constructChoices (sol, remaining) = do
-           let fs' = unClosure fs
-           cs <- (unClosure $ generateChoices fs') sol remaining
-
-           spaces <- scanM (flip (unClosure (removeChoice fs'))) remaining cs
-
-           return $ zip3 cs (replicate (length spaces) sol) spaces
-
-       makeTask (c, s, r) = do
-        bnd <- io $ readFromRegistry boundKey
-
-        -- Check if we can prune first to avoid extra work
-        let fs' = unClosure fs
-        sp <- unClosure (shouldPrune fs') c bnd s r
-        case sp of
-          NoPrune -> do
-            l <- new
-            g <- glob l
-
-            let task  =
-                  $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g , c , master
-                                                                    , s , r , fs) |])
-
-            return $ Just (l, task, c, s, r)
-
-          _       -> return Nothing
-
--}
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl
 declareStatic = mconcat
