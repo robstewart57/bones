@@ -100,7 +100,7 @@ userStateKey = 3
 -- | Ensure all nodes know of the starting bound
 initLocalRegistries :: [Node] -- ^ Nodes to initialise
                     -> b      -- ^ Bound value
-                    -> Closure (ToCFns a b c s ) -- ^ Explicit toClosure instances
+                    -> Closure (ToCFns a b s) -- ^ Explicit toClosure instances
                     -> Par () -- ^ Side-effect only
 initLocalRegistries nodes bnd toCFns =
   let toC    = unClosure toCFns

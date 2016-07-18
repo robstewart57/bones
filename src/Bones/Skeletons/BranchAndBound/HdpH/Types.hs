@@ -17,13 +17,13 @@ import           GHC.Generics          (Generic)
 type BBNode a b s = (a, b, s)
 
 bound :: BBNode a b s -> b
-bound = snd
+bound (_, b, _) = b
 
 solution :: BBNode a b s -> a
-solution = fst
+solution (s, _ , _ )= s
 
 subspace :: BBNode a b s -> s
-subspace (_, _, s) -> s
+subspace (_, _, s) = s
 
 data BAndBFunctions a b s =
   BAndBFunctions
@@ -43,7 +43,7 @@ data BAndBFunctionsL a b s =
   BAndBFunctionsL
     { orderedGeneratorL :: BBNode a b s -> Par [BBNode a b s]
     , pruningPredicateL :: BBNode a b s -> b -> Par PruneType
-    , strengthenL       :: BBNode a b s -> b -> Par Bool
+    , strengthenL       :: BBNode a b s -> b -> Bool
     } deriving (Generic)
 
 data ToCFnsL a b s =
@@ -75,7 +75,7 @@ extractBandBFunctions fns =
   let BAndBFunctions !a !b !c = unClosure fns
   in  BAndBFunctionsL (unClosure a) (unClosure b) (unClosure c)
 
-extractToCFunctions :: Closure (ToCFns a b c s) -> ToCFnsL a b c s
+extractToCFunctions :: Closure (ToCFns a b s) -> ToCFnsL a b s
 extractToCFunctions fns =
   let ToCFns !a !b !c = unClosure fns
   in  ToCFnsL (unClosure a) (unClosure b) (unClosure c)
