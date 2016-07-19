@@ -13,7 +13,7 @@ import           Control.Parallel.HdpH ( Closure, Node, Par, StaticDecl, Thunk (
                                        , static, sparkWithPrio , unClosure, probe, put, new,
                                          glob, tryGet, tryRPut, toClosure)
 
-import           Control.Monad         (forM, foldM_, when)
+import           Control.Monad         (forM, foldM_, when, zipWithM)
 
 import           Control.Concurrent.STM       (atomically)
 import           Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
@@ -30,7 +30,7 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
 --------------------------------------------------------------------------------
 
 -- | Type representing all information required for a task including coordination variables
-data Task c a s = Task
+data Task a b s = Task
   {
     priority  :: Int
     -- ^ Discrepancy based task priority
@@ -41,7 +41,7 @@ data Task c a s = Task
   , resultG   :: GIVar (Closure ())
   , comp      :: Closure (Par (Closure ()))
     -- ^ The search computation to run (already initialised with variables)
-  , node      :: NodeBB a b s
+  , node      :: BBNode a b s
   }
 
 --------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ data Task c a s = Task
 -- (3) Results should have low variance allowing them to be reproducible
 search :: Bool                            -- ^ Should discrepancy search be used? Else spawn tasks linearly, left to right.
        -> Int                             -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
-       -> NodeBB a b s                    -- ^ Initial root search node
+       -> BBNode a b s                    -- ^ Initial root search node
        -> Closure (BAndBFunctions a b s)  -- ^ Higher order B&B functions
        -> Closure (ToCFns a b s)          -- ^ Explicit toClosure instances
        -> Par a                           -- ^ The resulting solution after the search completes
@@ -65,7 +65,7 @@ search diversify spawnDepth root fs toC = do
   nodes  <- allNodes
 
   -- Configuration initial state
-  initLocalRegistries nodes bnd toC
+  initLocalRegistries nodes (bound root) toC
   initSolutionOnMaster root toC
 
   -- Construct task parameters and priorities
@@ -78,8 +78,7 @@ search diversify spawnDepth root fs toC = do
   -- Handle all tasks in sequential order using the master thread
   let fsl      = extractBandBFunctions fs
       toCl     = extractToCFunctions toC
-      !updateB = updateBound (unClosure fs)
-  mapM_ (handleTask master fsl toCl updateB) taskList
+  mapM_ (handleTask master fsl toCl fs) taskList
 
   -- Global solution is a tuple (solution, bound). We only return the solution
   io $ unClosure . fst <$> readFromRegistry solutionKey
@@ -96,13 +95,13 @@ search diversify spawnDepth root fs toC = do
       -- | Perform a task only if another worker hasn't already started working
       -- on this subtree. If they have then the master thead spins so that it
       -- doesn't get descheduled while waiting.
-      handleTask master fsl toCl updateB task = do
+      handleTask master fsl toCl fsC task = do
         wasTaken <- probe (isStarted task)
         if wasTaken
          then spinGet (resultM task)
          else do
           put (isStarted task) toClosureUnit
-          safeBranchAndBoundSkeletonChild master (node task) updateB fsl toCl
+          safeBranchAndBoundSkeletonChild master (node task) fsC fsl toCl
           put (resultM task) toClosureUnit
           return toClosureUnit
 
@@ -132,39 +131,41 @@ createTasksToDepth :: Node
                    -- ^ The master node which stores the global bound
                    -> Int
                    -- ^ Depth to spawn to. Depth = 0 implies top level only.
-                   -> NodeBB a b s
+                   -> BBNode a b s
                    -- ^ Starting node to branch from
                    -> Closure (BAndBFunctions a b s)
                    -- ^ Higher Order B&B functions
                    -> Closure (ToCFns a b s)
                    -- ^ Explicit toClosure instances
-                   -> Par [Task c a s]
-createTasksToDepth master depth ssol sspace fs toC' =
-  go depth 1 0 ssol sspace (extractBandBFunctions fs) (extractToCFunctions toC')
+                   -> Par [Task a b s]
+createTasksToDepth master depth root fsC toC' =
+  go depth 1 0 root (extractBandBFunctions fsC) (extractToCFunctions toC')
   where
     go d i parentP n fns toC
          | d == 0 = do
              ns <- orderedGeneratorL fns n
-             zipWithM (\p n' -> createTask toC (parentP + p), n') (0 : inc i) ns
+             zipWithM (\p n' -> createTask toC (parentP + p) n') (0 : inc i) ns
          | otherwise = do
              ns <- orderedGeneratorL fns n
-             let ts = zip3 ((0 :: Int) : inc i) ns
+             let ts = zip ((0 :: Int) : inc i) ns
 
              xs <- forM ts $ \(p, n') -> do
                         go (d - 1) (i * 2) (parentP + p) n' fns toC
 
              return (concat xs)
 
-    createTask toC (p, n) = do
+    createTask toC p n = do
        taken <- new
        g <- glob taken
        resMaster <- new
        resG <- glob resMaster
 
+      -- Need to closure up the nodes here?
+       let n' = toCnodeL toC $ n
        let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
                                                                       , master
-                                                                      , n
-                                                                      , fs
+                                                                      , n'
+                                                                      , fsC
                                                                       , toC'
                                                                       ) |])
 
@@ -189,39 +190,39 @@ spinGet v = do
 safeBranchAndBoundSkeletonChildTask ::
     ( GIVar (Closure ())
     , Node
-    , Closure (NodeBB a b s)
+    , Closure (BBNode a b s)
     , Closure (BAndBFunctions a b s)
     , Closure (ToCFns a b s))
     -- TODO: Do I really need closures here? I guess to write into the IVar
     -> Thunk (Par (Closure ()))
-safeBranchAndBoundSkeletonChildTask (taken, parent, n, fs, toC) =
+safeBranchAndBoundSkeletonChildTask (taken, parent, n, fsC, toC) =
   Thunk $ do
     -- Notify the parent that we are starting this task. TryRPut returns true if
     -- the IVar was free and write was successful, else false
     doStart <- unClosure <$> (spinGet =<< tryRPut taken toClosureUnit)
     if doStart
       then
-        let fsL      = extractBandBFunctions fs
+        let fsL      = extractBandBFunctions fsC
             toCl     = extractToCFunctions toC
-            !updateB = updateBound (unClosure fs)
-        in safeBranchAndBoundSkeletonChild parent n updateB fsL toCl
+            n'       = unClosure n
+        in safeBranchAndBoundSkeletonChild parent n' fsC fsL toCl
       else
         return toClosureUnit
 
 safeBranchAndBoundSkeletonChild ::
-    -> Node
-    -> NodeBB a b s
-    -> Closure (UpdateBoundFn b)
+       Node
+    -> BBNode a b s
+    -> Closure (BAndBFunctions a b s)
     -> BAndBFunctionsL a b s
     -> ToCFnsL a b s
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild parent n updateB fsl toCL = do
+safeBranchAndBoundSkeletonChild parent n fsC fsl toCL = do
     bnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
-    sp <- pruningPredicate fsl n bnd
+    sp <- pruningPredicateL fsl n bnd
     case sp of
-      NoPrune -> expandSequential parent n fsl toCL >> return toClosureUnit
+      NoPrune -> expandSequential parent n fsC fsl toCL >> return toClosureUnit
       _       -> return toClosureUnit
 
 $(return []) -- TH Workaround

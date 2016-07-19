@@ -37,6 +37,7 @@ data ToCFns a b s =
     { toCa :: Closure (a -> Closure a)
     , toCb :: Closure (b -> Closure b)
     , toCs :: Closure (s -> Closure s)
+    , toCnode :: Closure ((a, b, s) -> Closure (a, b, s))
     } deriving (Generic)
 
 data BAndBFunctionsL a b s =
@@ -51,6 +52,7 @@ data ToCFnsL a b s =
     { toCaL :: a -> Closure a
     , toCbL :: b -> Closure b
     , toCsL :: s -> Closure s
+    , toCnodeL :: (a, b, s) -> Closure (a, b, s)
     } deriving (Generic)
 
 instance NFData (BAndBFunctions a b s)
@@ -77,8 +79,8 @@ extractBandBFunctions fns =
 
 extractToCFunctions :: Closure (ToCFns a b s) -> ToCFnsL a b s
 extractToCFunctions fns =
-  let ToCFns !a !b !c = unClosure fns
-  in  ToCFnsL (unClosure a) (unClosure b) (unClosure c)
+  let ToCFns !a !b !c !d = unClosure fns
+  in  ToCFnsL (unClosure a) (unClosure b) (unClosure c) (unClosure d)
 
 -- Static Information
 $(return []) -- TH Workaround
