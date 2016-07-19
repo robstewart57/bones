@@ -28,20 +28,20 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Util
 -- | Perform a backtracking search using a skeleton with distributed work
 -- spawning. Makes no guarantees on task ordering.
 search :: Int                               -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
-       -> BBNode (a, b, s)                  -- ^ Root Node
+       -> BBNode a b s                      -- ^ Root Node
        -> Closure (BAndBFunctions a b s)    -- ^ Higher order B&B functions
        -> Closure (ToCFns a b s)            -- ^ Explicit toClosure instances
        -> Par a                             -- ^ The resulting solution after the search completes
-search depth root space bnd fs' toC = do
+search depth root fs' toC = do
   master <- myNode
   nodes  <- allNodes
 
   -- Configuration initial state
-  initLocalRegistries nodes bnd toC
+  initLocalRegistries nodes (bound root) toC
   initSolutionOnMaster root toC
 
   -- Gen top level
-  ts <- unClosure (orderedGenerator (unClousre fs')) root
+  ts <- unClosure (orderedGenerator (unClosure fs')) root
   let tasks = map (createChildren depth master) ts
 
   mapM (spawn one) tasks >>= mapM_ get
@@ -49,37 +49,37 @@ search depth root space bnd fs' toC = do
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
       createChildren d m n =
-          let n' = toClosure n
+          let n' = (unClosure $ toCnode (unClosure toC)) n
           in $(mkClosure [| branchAndBoundChild (d, m, n', fs', toC) |])
 
 branchAndBoundChild ::
     ( Int
     , Node
     , Closure (BBNode a b s)
-    , Closure (BAndBFunction a b s)
+    , Closure (BAndBFunctions a b s)
     , Closure (ToCFns a b s))
     -> Thunk (Par (Closure ()))
-branchAndBoundChild (spawnDepth, n, fs', toC) =
+branchAndBoundChild (spawnDepth, parent, n, fs', toC) =
   Thunk $ do
     let fs = unClosure fs'
     bnd <- io $ readFromRegistry boundKey
 
-    sp <- unClosure (pruningPredicate fs) $ (unClosure n) (unClosure c) bnd
+    sp <- unClosure (pruningPredicate fs) (unClosure n) bnd
     case sp of
-      NoPrune -> branchAndBoundExpand spawnDepth n fs' toC >> return toClosureUnit
+      NoPrune -> branchAndBoundExpand spawnDepth parent n fs' toC >> return toClosureUnit
       _       -> return toClosureUnit
 
 branchAndBoundExpand ::
        Int
     -> Node
-    -> Closure n
-    -> Closure (BAndBFunction a b s)
+    -> Closure (BBNode a b s)
+    -> Closure (BAndBFunctions a b s)
     -> Closure (ToCFns a b s)
     -> Par ()
-branchAndBoundExpand depth n fs toC
+branchAndBoundExpand depth parent n fs toC
   | depth == 0 = let fsl  = extractBandBFunctions fs
                      toCl = extractToCFunctions toC
-                 in expandSequential parent n fsl toCl
+                 in expandSequential parent (unClosure n) fs fsl toCl
   | otherwise  = do
         -- Duplication from the main search function, extract
         let fs' = unClosure fs
@@ -87,12 +87,11 @@ branchAndBoundExpand depth n fs toC
 
         let tasks = map (createChildren (depth - 1) parent) ns
 
-        mapM (spawn one) tasks >>= mapM_ get children
-        mapM_ get children
+        mapM (spawn one) tasks >>= mapM_ get
 
   where
       createChildren d m n =
-          let n' = toClosure n
+          let n' = (unClosure $ toCnode (unClosure toC)) n
           in $(mkClosure [| branchAndBoundChild (d, m, n', fs, toC) |])
 
 $(return []) -- TH Workaround
