@@ -11,7 +11,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.Common
   , expandSequential
 
   -- State Updates
-  , updateLocalBounds
+  , updateLocalBound
   , notifyParentOfNewBound
 
   -- Static Decl
@@ -41,60 +41,63 @@ initSolutionOnMaster :: BBNode a b s
 initSolutionOnMaster n toC =
   let toCsol = unClosure (toCa (unClosure toC))
       solC   = toCsol $ solution n
-      bnd    =  bound n
+      bnd    = bound n
       -- We keep solutions in closure form until we ask for them. Bounds are
       -- kept unClosured for faster comparison.
   in io $ addToRegistry solutionKey (solC, bnd)
 
 -- | Update local bounds
-updateLocalBounds :: Node a b s
-                  -- ^ New bound
-                  -- Probably need the strengthen?
-                  -> BBnode a b s -> b -> bool
-                  -- ^ functions (to access updateBound function)
+updateLocalBound ::  b
+                  -- ^ New best solution
+                  -> BAndBFunctions a b s
+                  -- ^ Functions (to access the strengthen function)
                   -> Par ()
                   -- ^ Side-effect only function
-updateLocalBounds bnd updateB = do
+updateLocalBound bnd fs = do
+  -- Don't like having to create these "fake nodes", can strength just be b -> b -> Bool?
+  -- Or does it need the solution?
+  let n = (undefined, bnd, undefined)
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
-    if updateB bnd b then (bnd, ()) else (b, ())
+    if (unClosure $ strengthen fs) n b then (bnd, ()) else (b, ())
 
-updateLocalBoundsT :: (Closure (BBNode a b s), Closure (BBNode a b s -> b -> Bool))
+updateLocalBoundT :: ((Closure b), Closure (BAndBFunctions a b s))
                    -> Thunk (Par ())
-updateLocalBoundsT (bnd, bndfn) = Thunk $ updateLocalBounds (unClosure bnd) (unClosure bndfn)
+updateLocalBoundT (bndC, fns) = Thunk $ updateLocalBound (unClosure bndC) (unClosure fns)
 
 -- | Push new bounds to the master node. Also sends the new solution to avoid
 --   additional messages.
 notifyParentOfNewBound :: Node
                        -- ^ Master node
-                       -> Closure (BBNode a b s)
-                       -- ^ (Solution, Bound)
-                       -> Closure (BBNode a b s -> b -> Bool)
+                       -> (Closure a, Closure b)
+                       -- ^ New updated solution
+                       -> Closure (BAndBFunctions a b s)
                        -- ^ Strengthen Function
                        -> Par ()
                        -- ^ Side-effect only function
-notifyParentOfNewBound parent n fs = do
+notifyParentOfNewBound parent best fs = do
   -- We wait for an ack (get) to avoid a race condition where all children
   -- finish before the final updateBest task is ran on the master node.
-  spawnAt parent $(mkClosure [| updateParentBoundT (n, fs) |]) >>= get
+  spawnAt parent $(mkClosure [| updateParentBoundT (best, fs) |]) >>= get
   return ()
 
 -- | Update the global solution with the new solution. If this succeeds then
 --   tell all other nodes to update their local information.
-updateParentBoundT :: (Closure (BBNode a b s), Closure (BBNode a b s -> b -> Bool))
-                     -- ^ (Node, UpdateBound)
+updateParentBoundT :: ((Closure a, Closure b), Closure (BAndBFunctions a b s))
+                     -- ^ (Node, Functions)
                      -> Thunk (Par (Closure ()))
                      -- ^ Side-effect only function
-updateParentBoundT (n, strengthn) = Thunk $ do
+updateParentBoundT ((s, bnd), fns) = Thunk $ do
+  let n = (unClosure s, unClosure bnd, undefined)
   ref     <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if unClosure stengthn (unClosure n) b
-                    then ((sol, unClosure bnd), True)
-                    else (prev                , False)
+                if unClosure (strengthen (unClosure fns)) n b
+                    then ((s, unClosure bnd), True)
+                    else (prev              , False)
 
   when updated $ do
     ns <- allNodes
-    mapM_ (pushTo $(mkClosure [| updateLocalBoundsT (n, strengthn) |])) ns
+    mapM_ (pushTo $(mkClosure [| updateLocalBoundT (bnd, fns) |])) ns
 
   return toClosureUnit
 
@@ -103,14 +106,16 @@ expandSequential ::
        -- ^ Master node (for transferring new bounds)
     -> BBNode a b s
        -- ^ Root node for this (sub-tree) search
-    -> BAndBFunctionsL a b c s
+    -> Closure (BAndBFunctions a b s)
+       -- ^ Closured function variants
+    -> BAndBFunctionsL a b s
        -- ^ Pre-unclosured local function variants
-    -> ToCFnsL a b c s
+    -> ToCFnsL a b s
        -- ^ Explicit toClosure instances
     -> Par ()
        -- ^ Side-effect only function
 -- Be careful of n aliasing
-expandSequential parent n' fsl toCL = expand n'
+expandSequential parent n' fs fsl toCL = expand n'
     where
       expand n = orderedGeneratorL fsl n >>= go
 
@@ -124,12 +129,11 @@ expandSequential parent n' fsl toCL = expand n'
           Prune      -> go ns
           PruneLevel -> return ()
           NoPrune    -> do
-            when (strengthenL fsl n)
-                let cSol = toCaL toCL newSol
-                    cBnd = toCbL toCL newBnd
-                updateLocalBounds n (strengthenL fsl)
-                -- Figure out how to avoid sending the whole node here, we only need the solution and the bound.
-                notifyParentOfNewBound parent (cSol, cBnd) updateBnd
+            when (strengthenL fsl n bnd) $ do
+                let cSol = toCaL toCL sol
+                    cBnd = toCbL toCL bndl
+                updateLocalBound bndl (unClosure fs)
+                notifyParentOfNewBound parent (cSol, cBnd) fs
 
             expand n >> go ns
 
@@ -139,5 +143,5 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     declare $(static 'updateParentBoundT)
-  , declare $(static 'updateLocalBoundsT)
+  , declare $(static 'updateLocalBoundT)
   ]
