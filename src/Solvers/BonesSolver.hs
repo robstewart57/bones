@@ -57,21 +57,68 @@ instance ToClosure VertexSet where locToClosure = $(here)
 
 instance ToClosure (Int, IBitSetArray) where locToClosure = $(here)
 
-instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet) where
+instance ToClosure (BAndBFunctions [Vertex] Int VertexSet) where
   locToClosure = $(here)
 
-instance ToClosure (ToCFns [Vertex] Int (Vertex,Int) VertexSet) where
+instance ToClosure (ToCFns [Vertex] Int VertexSet) where
   locToClosure = $(here)
 
-instance ToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray)) where
+instance ToClosure (BAndBFunctions [Vertex] Int (Int,IBitSetArray)) where
   locToClosure = $(here)
 
-instance ToClosure (ToCFns [Vertex] Int (Vertex,Int) (Int,IBitSetArray)) where
+instance ToClosure (ToCFns [Vertex] Int (Int,IBitSetArray)) where
   locToClosure = $(here)
 
 --------------------------------------------------------------------------------
 -- Max Clique Skeleton Functions
 --------------------------------------------------------------------------------
+
+type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
+
+-- BitSet
+orderedGeneratorBS :: MCNodeBS -> Par [MCNodeBS]
+orderedGeneratorBS ((sol, cols), bnd, (szspace, space)= do
+  (g, gC) <- io $ readFromRegistry searchSpaceKey
+  cs <- io ArrayVertexSet.fromImmutable vs >>= \vs' -> colourOrder gC vs' szspace
+  mapM accept cs
+  where
+      -- TODO: I don't think this accounts for not choosing nodes "to the left of the current"correctly
+    accept(v, c) = do
+      vs'          <- io $ ArrayVertexSet.fromImmutable vs
+      (newVs, pc)  <- io $ intersectAdjacency vs' g v
+      rem          <- io $ ArrayVertexSet.makeImmutable newVs
+      let newRem = (pc, newVs)
+
+      return $ ((v:sol, c), bnd + 1, newRem)
+
+pruningPredicateBS :: MCNodeBS -> Int -> Par PruneType
+pruningPredicateBS ((sol, cols), lbnd, _) gbnd =
+  if lbnd + cols <= gbnd then return PruneLevel else return NoPrune
+
+strengthenBS :: MCNodeBS -> Int -> Bool
+strengthenBS (_, lbnd, _) gbnd = lbnd > gbnd
+
+-- IntSet
+type MCNodeIS = (([Vertex], Int), Int, VertexSet)
+
+orderedGeneratorIS :: MCNodeIS -> Par [MCNodeIS]
+orderedGeneratorIS ((sol, cols), bnd, vs) = do
+  g <- io $ readFromRegistry searchSpaceKey
+  mapM accept (colourOrder g vs)
+      -- TODO: I don't think this accounts for not choosing nodes "to the left of the current"correctly
+  where accept (v, c) = do
+          let newSpace = VertexSet.intersection vs $ adjacentG g v
+          return ((v : sol, c), bnd + 1, newSpace)
+
+pruningPredicateIS :: MCNode -> Int -> Par PruneType
+pruningPredicateIS ((sol, cols), lbnd, _) gbnd =
+  if lbnd + cols <= gbnd then return PruneLevel else return NoPrune
+
+strengthenIS :: MCNode -> Int -> Par PruneType
+strengthenIS (_, lbnd, _) gbnd = lbnd > gbnd
+
+--
+
 generateChoices  :: [Vertex]
                  -> VertexSet
                  -> Par [(Vertex, Int)]
