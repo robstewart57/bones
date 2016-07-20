@@ -110,11 +110,11 @@ orderedGeneratorIS ((sol, cols), bnd, vs) = do
           let newSpace = VertexSet.intersection vs $ adjacentG g v
           return ((v : sol, c), bnd + 1, newSpace)
 
-pruningPredicateIS :: MCNode -> Int -> Par PruneType
+pruningPredicateIS :: MCNodeIS -> Int -> Par PruneType
 pruningPredicateIS ((sol, cols), lbnd, _) gbnd =
   if lbnd + cols <= gbnd then return PruneLevel else return NoPrune
 
-strengthenIS :: MCNode -> Int -> Par PruneType
+strengthenIS :: MCNodeIS -> Int -> Par PruneType
 strengthenIS (_, lbnd, _) gbnd = lbnd > gbnd
 
 --------------------------------------------------------------------------------
