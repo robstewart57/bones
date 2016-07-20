@@ -57,16 +57,16 @@ instance ToClosure VertexSet where locToClosure = $(here)
 
 instance ToClosure (Int, IBitSetArray) where locToClosure = $(here)
 
-instance ToClosure (BAndBFunctions [Vertex] Int VertexSet) where
+instance ToClosure (BAndBFunctions ([Vertex], Int) Int VertexSet) where
   locToClosure = $(here)
 
-instance ToClosure (ToCFns [Vertex] Int VertexSet) where
+instance ToClosure (ToCFns ([Vertex], Int) Int VertexSet) where
   locToClosure = $(here)
 
-instance ToClosure (BAndBFunctions [Vertex] Int (Int,IBitSetArray)) where
+instance ToClosure (BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)) where
   locToClosure = $(here)
 
-instance ToClosure (ToCFns [Vertex] Int (Int,IBitSetArray)) where
+instance ToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)) where
   locToClosure = $(here)
 
 --------------------------------------------------------------------------------
@@ -77,17 +77,18 @@ type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
 
 -- BitSet
 orderedGeneratorBS :: MCNodeBS -> Par [MCNodeBS]
-orderedGeneratorBS ((sol, cols), bnd, (szspace, space)= do
+orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
   (g, gC) <- io $ readFromRegistry searchSpaceKey
-  cs <- io ArrayVertexSet.fromImmutable vs >>= \vs' -> colourOrder gC vs' szspace
-  mapM accept cs
+  vs'     <- io $ ArrayVertexSet.fromImmutable space
+  cs      <- io $ colourOrderBitSetArray gC vs' szspace
+  mapM (accept g) cs
   where
       -- TODO: I don't think this accounts for not choosing nodes "to the left of the current"correctly
-    accept(v, c) = do
-      vs'          <- io $ ArrayVertexSet.fromImmutable vs
+    accept g (v, c) = do
+      vs'          <- io $ ArrayVertexSet.fromImmutable space
       (newVs, pc)  <- io $ intersectAdjacency vs' g v
       rem          <- io $ ArrayVertexSet.makeImmutable newVs
-      let newRem = (pc, newVs)
+      let newRem = (pc, rem)
 
       return $ ((v:sol, c), bnd + 1, newRem)
 
@@ -104,9 +105,9 @@ type MCNodeIS = (([Vertex], Int), Int, VertexSet)
 orderedGeneratorIS :: MCNodeIS -> Par [MCNodeIS]
 orderedGeneratorIS ((sol, cols), bnd, vs) = do
   g <- io $ readFromRegistry searchSpaceKey
-  mapM accept (colourOrder g vs)
+  mapM (accept g) (colourOrder g vs)
       -- TODO: I don't think this accounts for not choosing nodes "to the left of the current"correctly
-  where accept (v, c) = do
+  where accept g (v, c) = do
           let newSpace = VertexSet.intersection vs $ adjacentG g v
           return ((v : sol, c), bnd + 1, newSpace)
 
@@ -114,7 +115,7 @@ pruningPredicateIS :: MCNodeIS -> Int -> Par PruneType
 pruningPredicateIS ((sol, cols), lbnd, _) gbnd =
   if lbnd + cols <= gbnd then return PruneLevel else return NoPrune
 
-strengthenIS :: MCNodeIS -> Int -> Par PruneType
+strengthenIS :: MCNodeIS -> Int -> Bool
 strengthenIS (_, lbnd, _) gbnd = lbnd > gbnd
 
 --------------------------------------------------------------------------------
@@ -123,22 +124,18 @@ strengthenIS (_, lbnd, _) gbnd = lbnd > gbnd
 
 randomWSIntSet :: Graph -> Int -> Par Clique
 randomWSIntSet g depth = do
-  vs <- Broadcast.search
+  (vs, _) <- Broadcast.search
         depth
-        ([] :: [Vertex])
-        (VertexSet.fromAscList $ verticesG g)
-        (0 :: Int)
+        (([], 0), 0, VertexSet.fromAscList $ verticesG g)
         (toClosure (BAndBFunctions
-          $(mkClosure [| generateChoices |])
-          $(mkClosure [| shouldPrune |])
-          $(mkClosure [| shouldUpdateBound |])
-          $(mkClosure [| step |])
-          $(mkClosure [| removeFromSpace |])))
+          $(mkClosure [| orderedGeneratorIS |])
+          $(mkClosure [| pruningPredicateIS |])
+          $(mkClosure [| strengthenIS |])))
         (toClosure (ToCFns
-          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureColourOrder |])
-          $(mkClosure [| toClosureVertexSet|])))
+          $(mkClosure [| toClosureVertexSet|])
+          $(mkClosure [| toClosureMCNodeIS |])))
 
   return (vs, length vs)
 
@@ -146,22 +143,18 @@ randomWSBitArray :: Int -> Int -> Par Clique
 randomWSBitArray nVertices depth = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
-  vs <- Broadcast.search
+  (vs, _) <- Broadcast.search
         depth
-        ([] :: [Vertex])
-        (nVertices, initSet)
-        (0 :: Int)
+        (([], 0), 0, (nVertices, initSet))
         (toClosure (BAndBFunctions
-          $(mkClosure [| generateChoicesBitSetArray |])
-          $(mkClosure [| shouldPruneBitSetArray |])
-          $(mkClosure [| shouldUpdateBound |])
-          $(mkClosure [| stepBitSetArray |])
-          $(mkClosure [| removeFromBitSetArray |])))
+          $(mkClosure [| orderedGeneratorBS |])
+          $(mkClosure [| pruningPredicateBS |])
+          $(mkClosure [| strengthenBS |])))
         (toClosure (ToCFns
-          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureColourOrder  |])
-          $(mkClosure [| toClosureIBitSetArray |])))
+          $(mkClosure [| toClosureIBitSetArray |])
+          $(mkClosure [| toClosureMCNodeBS |])))
 
   return (vs, length vs)
 
@@ -172,66 +165,39 @@ randomWSBitArray nVertices depth = do
 
 safeSkeletonIntSet :: Graph -> Int -> Bool -> Par Clique
 safeSkeletonIntSet g depth diversify = do
-  vs <- Safe.search
+  (vs, _) <- Safe.search
         diversify
         depth
-        ([] :: [Vertex])
-        (VertexSet.fromAscList $ verticesG g)
-        (0 :: Int)
+        (([], 0), 0, VertexSet.fromAscList $ verticesG g)
         (toClosure (BAndBFunctions
-          $(mkClosure [| generateChoices |])
-          $(mkClosure [| shouldPrune |])
-          $(mkClosure [| shouldUpdateBound |])
-          $(mkClosure [| step |])
-          $(mkClosure [| removeFromSpace |])))
+          $(mkClosure [| orderedGeneratorIS |])
+          $(mkClosure [| pruningPredicateIS |])
+          $(mkClosure [| strengthenIS |])))
         (toClosure (ToCFns
-          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureColourOrder |])
-          $(mkClosure [| toClosureVertexSet|])))
+          $(mkClosure [| toClosureVertexSet|])
+          $(mkClosure [| toClosureMCNodeIS |])))
 
   return (vs, length vs)
-
-{-
-safeSkeletonIntSetDynamic :: Graph -> Int -> Int -> Par Clique
-safeSkeletonIntSetDynamic g depth ntasks = do
-  vs <- Safe.searchDynamic
-        ntasks
-        depth
-        (toClosureListVertex ([] :: [Vertex]))
-        (toClosureVertexSet $ VertexSet.fromAscList $ verticesG g)
-        (toClosureInt (0 :: Int))
-        (toClosure (BAndBFunctions
-          $(mkClosure [| generateChoices |])
-          $(mkClosure [| shouldPrune |])
-          $(mkClosure [| shouldUpdateBound |])
-          $(mkClosure [| step |])
-          $(mkClosure [| removeFromSpace |])))
-
-  return (vs, length vs)
--}
 
 safeSkeletonBitSetArray :: Int -> Int -> Bool -> Par Clique
 safeSkeletonBitSetArray nVertices depth diversify = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
-  vs <- Safe.search
+  (vs, _) <- Safe.search
         diversify
         depth
-        ([] :: [Vertex])
-        (nVertices, initSet)
-        (0 :: Int)
+        (([], 0), 0, (nVertices, initSet))
         (toClosure (BAndBFunctions
-          $(mkClosure [| generateChoicesBitSetArray |])
-          $(mkClosure [| shouldPruneBitSetArray |])
-          $(mkClosure [| shouldUpdateBound |])
-          $(mkClosure [| stepBitSetArray |])
-          $(mkClosure [| removeFromBitSetArray |])))
+          $(mkClosure [| orderedGeneratorBS |])
+          $(mkClosure [| pruningPredicateBS |])
+          $(mkClosure [| strengthenBS |])))
         (toClosure (ToCFns
-          $(mkClosure [| toClosureListVertex |])
+          $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureColourOrder  |])
-          $(mkClosure [| toClosureIBitSetArray |])))
+          $(mkClosure [| toClosureIBitSetArray |])
+          $(mkClosure [| toClosureMCNodeBS |])))
 
   return (vs, length vs)
 
@@ -239,31 +205,6 @@ safeSkeletonBitSetArray nVertices depth diversify = do
           s <- ArrayVertexSet.new nVertices
           forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
           return s
-
-{-
-findSolution :: Int -> Int -> Int -> Par Clique
-findSolution nVertices depth targetSize = do
-  initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
-
-  vs <- Broadcast.findSolution
-        depth
-        (toClosureListVertex ([] :: [Vertex]))
-        (toClosureIBitSetArray (nVertices, initSet))
-        (toClosureInt targetSize)
-        (toClosure (BAndBFunctions
-          $(mkClosure [| generateChoicesBitSetArray |])
-          $(mkClosure [| shouldPruneF |])
-          $(mkClosure [| isTarget |])
-          $(mkClosure [| stepBitSetArray |])
-          $(mkClosure [| removeFromBitSetArray |])))
-
-  return (vs, length vs)
-
-  where setAll = do
-          s <- ArrayVertexSet.new nVertices
-          forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
-          return s
--}
 
 --------------------------------------------------------------------------------
 -- Explicit ToClousre Instances (needed for performance)
@@ -274,23 +215,29 @@ toClosureInt x = $(mkClosure [| toClosureInt_abs x |])
 toClosureInt_abs :: Int -> Thunk Int
 toClosureInt_abs x = Thunk x
 
-toClosureListVertex :: [Vertex] -> Closure [Vertex]
-toClosureListVertex x = $(mkClosure [| toClosureListVertex_abs x |])
+toClosureSol :: ([Vertex], Int) -> Closure ([Vertex], Int)
+toClosureSol x = $(mkClosure [| toClosureSol_abs x |])
 
-toClosureListVertex_abs :: [Vertex] -> Thunk [Vertex]
-toClosureListVertex_abs x = Thunk x
+toClosureSol_abs :: ([Vertex], Int) -> Thunk ([Vertex], Int)
+toClosureSol_abs x = Thunk x
+
+toClosureMCNodeIS :: MCNodeIS -> Closure MCNodeIS
+toClosureMCNodeIS x = $(mkClosure [| toClosureMCNodeIS_abs x |])
+
+toClosureMCNodeIS_abs :: MCNodeIS -> Thunk MCNodeIS
+toClosureMCNodeIS_abs x = Thunk x
+
+toClosureMCNodeBS :: MCNodeBS -> Closure MCNodeBS
+toClosureMCNodeBS x = $(mkClosure [| toClosureMCNodeBS_abs x |])
+
+toClosureMCNodeBS_abs :: MCNodeBS -> Thunk MCNodeBS
+toClosureMCNodeBS_abs x = Thunk x
 
 toClosureVertexSet :: VertexSet -> Closure VertexSet
 toClosureVertexSet x = $(mkClosure [| toClosureVertexSet_abs x |])
 
 toClosureVertexSet_abs :: VertexSet -> Thunk VertexSet
 toClosureVertexSet_abs x = Thunk x
-
-toClosureColourOrder :: (Vertex, Int) -> Closure (Vertex, Int)
-toClosureColourOrder x = $(mkClosure [| toClosureColourOrder_abs x |])
-
-toClosureColourOrder_abs :: (Vertex, Int) -> Thunk (Vertex, Int)
-toClosureColourOrder_abs x = Thunk x
 
 toClosureIBitSetArray :: (Int, IBitSetArray) -> Closure (Int, IBitSetArray)
 toClosureIBitSetArray x = $(mkClosure [| toClosureIBitSetArray_abs x |])
@@ -306,39 +253,35 @@ declareStatic = mconcat
   , declare (staticToClosure :: StaticToClosure [Vertex])
   , declare (staticToClosure :: StaticToClosure VertexSet)
   , declare (staticToClosure :: StaticToClosure (Vertex, Int))
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) VertexSet))
-  , declare (staticToClosure :: StaticToClosure (ToCFns [Vertex] Int (Vertex,Int) VertexSet))
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions [Vertex] Int (Vertex,Int) (Int,IBitSetArray)))
-  , declare (staticToClosure :: StaticToClosure (ToCFns [Vertex] Int (Vertex,Int) (Int,IBitSetArray)))
+  , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int VertexSet))
+  , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int  VertexSet))
+  , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)))
+  , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)))
 
   -- B&B Functions
-  , declare $(static 'generateChoices)
-  , declare $(static 'shouldPrune)
-  , declare $(static 'shouldUpdateBound)
-  , declare $(static 'step)
-  , declare $(static 'removeFromSpace)
+  , declare $(static 'orderedGeneratorBS)
+  , declare $(static 'pruningPredicateBS)
+  , declare $(static 'strengthenBS)
 
-  , declare $(static 'generateChoicesBitSetArray)
-  , declare $(static 'shouldPruneBitSetArray)
-  , declare $(static 'stepBitSetArray)
-  , declare $(static 'removeFromBitSetArray)
-
-  -- Find Solution
-  -- , declare $(static 'shouldPruneF)
-  -- , declare $(static 'isTarget)
+  , declare $(static 'orderedGeneratorIS)
+  , declare $(static 'pruningPredicateIS)
+  , declare $(static 'strengthenIS)
 
   -- Explicit toClosure
   , declare $(static 'toClosureInt)
   , declare $(static 'toClosureInt_abs)
 
-  , declare $(static 'toClosureListVertex)
-  , declare $(static 'toClosureListVertex_abs)
+  , declare $(static 'toClosureSol)
+  , declare $(static 'toClosureSol_abs)
 
   , declare $(static 'toClosureVertexSet)
   , declare $(static 'toClosureVertexSet_abs)
 
-  , declare $(static 'toClosureColourOrder)
-  , declare $(static 'toClosureColourOrder_abs)
+  , declare $(static 'toClosureMCNodeBS)
+  , declare $(static 'toClosureMCNodeBS_abs)
+
+  , declare $(static 'toClosureMCNodeIS)
+  , declare $(static 'toClosureMCNodeIS_abs)
 
   , declare $(static 'toClosureIBitSetArray_abs)
   , declare $(static 'toClosureIBitSetArray)
