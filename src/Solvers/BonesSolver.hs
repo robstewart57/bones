@@ -20,7 +20,7 @@ import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         static, staticToClosure, toClosure,
                                         unClosure)
 import           Control.DeepSeq       (NFData)
-import           Control.Monad         (forM_)
+import           Control.Monad         (forM_, foldM)
 import           Data.Array.Unboxed
 import qualified Data.IntSet           as VertexSet (delete, difference,
                                                      fromAscList, intersection,
@@ -76,16 +76,23 @@ instance ToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)) where
 type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
 
 -- BitSet
+-- This works but is currently not lazy enough
+-- which means we end up generating lot's of spaces we never use!
+-- Keeping everything immutable until we do the colouring might
+-- be the easiest way to achieve this lazyness?
 orderedGeneratorBS :: MCNodeBS -> Par [MCNodeBS]
 orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
   (g, gC) <- io $ readFromRegistry searchSpaceKey
   vs'     <- io $ ArrayVertexSet.fromImmutable space
   cs      <- io $ colourOrderBitSetArray gC vs' szspace
-  mapM (accept g) cs
+  space'  <- io $ ArrayVertexSet.fromImmutable space >>= ArrayVertexSet.copy
+  mapM (accept g space') cs
   where
-      -- TODO: I don't think this accounts for not choosing nodes "to the left of the current"correctly
-    accept g (v, c) = do
-      vs'          <- io $ ArrayVertexSet.fromImmutable space
+    accept g s (v, c) = do
+      io $ ArrayVertexSet.remove v s
+
+      -- Get space at next level
+      vs'          <- io $ ArrayVertexSet.copy s -- (with choice removed)
       (newVs, pc)  <- io $ intersectAdjacency vs' g v
       rem          <- io $ ArrayVertexSet.makeImmutable newVs
       let newRem = (pc, rem)
@@ -105,11 +112,11 @@ type MCNodeIS = (([Vertex], Int), Int, VertexSet)
 orderedGeneratorIS :: MCNodeIS -> Par [MCNodeIS]
 orderedGeneratorIS ((sol, cols), bnd, vs) = do
   g <- io $ readFromRegistry searchSpaceKey
-  mapM (accept g) (colourOrder g vs)
-      -- TODO: I don't think this accounts for not choosing nodes "to the left of the current"correctly
-  where accept g (v, c) = do
-          let newSpace = VertexSet.intersection vs $ adjacentG g v
-          return ((v : sol, c), bnd + 1, newSpace)
+  return $ snd $ foldl (accept g) (vs, []) (colourOrder g vs)
+  where accept g (s, res) (v, c) =
+          let choiceRemoved = VertexSet.delete v s
+              newSpace = VertexSet.intersection choiceRemoved $ adjacentG g v
+          in (choiceRemoved, res ++ [((v : sol, c), bnd + 1, newSpace)])
 
 pruningPredicateIS :: MCNodeIS -> Int -> Par PruneType
 pruningPredicateIS ((sol, cols), lbnd, _) gbnd =
