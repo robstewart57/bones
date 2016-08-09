@@ -41,7 +41,7 @@ search depth root fs' toC = do
   initSolutionOnMaster root toC
 
   -- Gen top level
-  ts <- unClosure (orderedGenerator (unClosure fs')) root
+  ts <- unClosure (orderedGenerator (unClosure fs')) root >>= sequence
   let tasks = map (createChildren depth master) ts
 
   mapM (spawn one) tasks >>= mapM_ get
@@ -83,7 +83,7 @@ branchAndBoundExpand depth parent n fs toC
   | otherwise  = do
         -- Duplication from the main search function, extract
         let fs' = unClosure fs
-        ns <- (unClosure $ orderedGenerator fs') (unClosure n)
+        ns <- (unClosure $ orderedGenerator fs') (unClosure n) >>= sequence
 
         let tasks = map (createChildren (depth - 1) parent) ns
 

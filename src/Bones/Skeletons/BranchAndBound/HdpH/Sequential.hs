@@ -31,13 +31,17 @@ expand root fns = go1 root
     go (n:ns) = do
       bnd <- io $ readFromRegistry boundKey
 
-      sp <- pruningPredicateL fns n bnd
+      -- Manually force evaluation (used to avoid fully evaluating the node list
+      -- if it's not needed)
+      n' <- n
+
+      sp <- pruningPredicateL fns n' bnd
       case sp of
         Prune      -> go ns
         PruneLevel -> return ()
         NoPrune    -> do
-         when (strengthenL fns n bnd) (updateLocalBoundAndSol n fns)
-         go1 n >> go ns
+         when (strengthenL fns n' bnd) (updateLocalBoundAndSol n' fns)
+         go1 n' >> go ns
 
 -- Technically we don't need atomic modify when we are sequential but this
 -- keeps us closer to the parallel version.

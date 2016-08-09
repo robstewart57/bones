@@ -143,14 +143,15 @@ createTasksToDepth master depth root fsC toC' =
   where
     go d i parentP n fns toC
          | d == 0 = do
-             ns <- orderedGeneratorL fns n
+             ns <- orderedGeneratorL fns n >>= sequence
              zipWithM (\p n' -> createTask toC (parentP + p) n') (0 : inc i) ns
          | otherwise = do
              ns <- orderedGeneratorL fns n
              let ts = zip ((0 :: Int) : inc i) ns
 
              xs <- forM ts $ \(p, n') -> do
-                        go (d - 1) (i * 2) (parentP + p) n' fns toC
+                        n'' <- n'
+                        go (d - 1) (i * 2) (parentP + p) n'' fns toC
 
              return (concat xs)
 

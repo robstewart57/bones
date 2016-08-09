@@ -121,21 +121,25 @@ expandSequential parent n' fs fsl toCL = expand n'
 
       go [] = return ()
 
-      go (n@(sol, bndl, space):ns) = do
+      go (n:ns) = do
         bnd <- io $ readFromRegistry boundKey
 
-        sp <- pruningPredicateL fsl n bnd
+        -- Manually force evaluation (used to avoid fully evaluating the node list
+        -- if it's not needed)
+        node@(sol, bndl, _) <- n
+
+        sp <- pruningPredicateL fsl node bnd
         case sp of
           Prune      -> go ns
           PruneLevel -> return ()
           NoPrune    -> do
-            when (strengthenL fsl n bnd) $ do
+            when (strengthenL fsl node bnd) $ do
                 let cSol = toCaL toCL sol
                     cBnd = toCbL toCL bndl
                 updateLocalBound bndl (unClosure fs)
                 notifyParentOfNewBound parent (cSol, cBnd) fs
 
-            expand n >> go ns
+            expand node >> go ns
 
 
 $(return []) -- TH Workaround
