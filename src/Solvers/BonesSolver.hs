@@ -76,20 +76,17 @@ instance ToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)) where
 type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
 
 -- BitSet
--- This works but is currently not lazy enough
--- which means we end up generating lot's of spaces we never use!
--- Keeping everything immutable until we do the colouring might
--- be the easiest way to achieve this lazyness?
-orderedGeneratorBS :: MCNodeBS -> Par [MCNodeBS]
+orderedGeneratorBS :: MCNodeBS -> Par [Par MCNodeBS]
 orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
   (g, gC) <- io $ readFromRegistry searchSpaceKey
   vs'     <- io $ ArrayVertexSet.fromImmutable space
   cs      <- io $ colourOrderBitSetArray gC vs' szspace
   space'  <- io $ ArrayVertexSet.fromImmutable space >>= ArrayVertexSet.copy
+
   mapM (accept g space') cs
+
   where
-    accept g s (v, c) = do
-      io $ ArrayVertexSet.remove v s
+    accept g s (v, c) = return $ do
 
       -- Get space at next level
       vs'          <- io $ ArrayVertexSet.copy s -- (with choice removed)
@@ -97,10 +94,14 @@ orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
       rem          <- io $ ArrayVertexSet.makeImmutable newVs
       let newRem = (pc, rem)
 
-      return $ ((v:sol, c), bnd + 1, newRem)
+      io $ ArrayVertexSet.remove v s
+
+      -- Remove 1 from the colour since we have effectively "accepted" one
+      -- potential set of vertices
+      return $ ((v:sol, c - 1), bnd + 1, newRem)
 
 pruningPredicateBS :: MCNodeBS -> Int -> Par PruneType
-pruningPredicateBS ((sol, cols), lbnd, _) gbnd =
+pruningPredicateBS ((sol, cols), lbnd, _) gbnd = do
   if lbnd + cols <= gbnd then return PruneLevel else return NoPrune
 
 strengthenBS :: MCNodeBS -> Int -> Bool
@@ -109,14 +110,18 @@ strengthenBS (_, lbnd, _) gbnd = lbnd > gbnd
 -- IntSet
 type MCNodeIS = (([Vertex], Int), Int, VertexSet)
 
-orderedGeneratorIS :: MCNodeIS -> Par [MCNodeIS]
+orderedGeneratorIS :: MCNodeIS -> Par [Par MCNodeIS]
 orderedGeneratorIS ((sol, cols), bnd, vs) = do
   g <- io $ readFromRegistry searchSpaceKey
-  return $ snd $ foldl (accept g) (vs, []) (colourOrder g vs)
-  where accept g (s, res) (v, c) =
-          let choiceRemoved = VertexSet.delete v s
-              newSpace = VertexSet.intersection choiceRemoved $ adjacentG g v
-          in (choiceRemoved, res ++ [((v : sol, c), bnd + 1, newSpace)])
+
+  let sols = colourOrder g vs
+      cs   = tail $ scanl (\acc (v, c) -> VertexSet.delete v acc) vs sols
+
+  return $ zipWith (accept g) cs sols
+
+  where accept graph space (v, c) = do
+          let space' = VertexSet.intersection space (adjacentG graph v)
+          return ((v : sol, c - 1), bnd + 1, space')
 
 pruningPredicateIS :: MCNodeIS -> Int -> Par PruneType
 pruningPredicateIS ((sol, cols), lbnd, _) gbnd =
