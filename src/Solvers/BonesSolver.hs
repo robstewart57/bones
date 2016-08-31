@@ -79,9 +79,12 @@ type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
 orderedGeneratorBS :: MCNodeBS -> Par [Par MCNodeBS]
 orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
   (g, gC) <- io $ readFromRegistry searchSpaceKey
-  vs'     <- io $ ArrayVertexSet.fromImmutable space
-  cs      <- io $ colourOrderBitSetArray gC vs' szspace
-  space'  <- io $ ArrayVertexSet.fromImmutable space >>= ArrayVertexSet.copy
+
+  (cs, space') <- io $ do
+    vs'    <- ArrayVertexSet.fromImmutable space
+    cs     <- colourOrderBitSetArray gC vs' szspace
+    space' <- ArrayVertexSet.fromImmutable space >>= ArrayVertexSet.copy
+    return (cs, space')
 
   mapM (accept g space') cs
 
@@ -89,16 +92,19 @@ orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
     accept g s (v, c) = return $ do
 
       -- Get space at next level
-      vs'          <- io $ ArrayVertexSet.copy s -- (with choice removed)
-      (newVs, pc)  <- io $ intersectAdjacency vs' g v
-      rem          <- io $ ArrayVertexSet.makeImmutable newVs
-      let newRem = (pc, rem)
+      newRem <- io $ (calcNewRemaining s g v)
 
       io $ ArrayVertexSet.remove v s
 
       -- Remove 1 from the colour since we have effectively "accepted" one
       -- potential set of vertices
       return $ ((v:sol, c - 1), bnd + 1, newRem)
+
+    calcNewRemaining s g v = do
+      vs'          <- ArrayVertexSet.copy s
+      (newVs, pc)  <- intersectAdjacency vs' g v
+      remain       <- ArrayVertexSet.makeImmutable newVs
+      return (pc, remain)
 
 pruningPredicateBS :: MCNodeBS -> Int -> Par PruneType
 pruningPredicateBS ((sol, cols), lbnd, _) gbnd = do
