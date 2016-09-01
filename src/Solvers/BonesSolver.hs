@@ -86,10 +86,10 @@ orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
     space' <- ArrayVertexSet.fromImmutable space >>= ArrayVertexSet.copy
     return (cs, space')
 
-  mapM (accept g space') cs
+  return $ map (accept g space') cs
 
   where
-    accept g s (v, c) = return $ do
+    accept g s (v, c) = do
 
       -- Get space at next level
       newRem <- io $ (calcNewRemaining s g v)
