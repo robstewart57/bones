@@ -10,7 +10,7 @@ packages:
 - '.'
 - location:
     git: git@github.com:BlairArchibald/HdpH.git
-    commit: 51a43bd39dbbc9e3de182997752946b4f93e3550
+    commit: 9b62fdc17af8b9654ee7df2aa572d98758fcaeba
   subdirs:
   - hdph
   - hdph-closure
@@ -22,34 +22,13 @@ packages:
     commit: fb42d1ad37c20a91fb8918d0f93d59ff62a618ff
 - location:
     git: git@github.com:BlairArchibald/bones.git
-    commit: f3a3cc5dd5f1da7e15eacc795b875d024a53d8c4
+    commit: 233221039fd09af052092677654e7bb3fee4d722
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
-extra-deps:
-- transformers-0.5.2.0
-- transformers-compat-0.5.1.4
-
+extra-deps: []
 
 # Override default flag values for local packages and extra-deps
 flags: {}
 
 # Extra package databases containing global packages
 extra-package-dbs: []
-
-# Control whether we use the GHC we find on the path
-# system-ghc: true
-
-# Require a specific version of stack, using version ranges
-# require-stack-version: -any # Default
-# require-stack-version: >= 1.0.0
-
-# Override the architecture used by stack, especially useful on Windows
-# arch: i386
-# arch: x86_64
-
-# Extra directories used by stack for building
-# extra-include-dirs: [/path/to/dir]
-# extra-lib-dirs: [/path/to/dir]
-
-# Allow a newer minor version of GHC than the snapshot specifies
-# compiler-check: newer-minor
