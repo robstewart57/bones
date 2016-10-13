@@ -1,0 +1,24 @@
+flags: {}
+packages:
+- '.'
+- location:
+    git: git@github.com:BlairArchibald/HdpH.git
+    commit: 9b62fdc17af8b9654ee7df2aa572d98758fcaeba
+  subdirs:
+  - hdph
+  - hdph-closure
+- location:
+    git: git@github.com:haskell-distributed/network-transport-tcp.git
+    commit: c2a316dc93a6d666e5cae61d5676f6a3ec5a7f83
+- location:
+    git: git@github.com:BlairArchibald/bones.git
+    commit: 233221039fd09af052092677654e7bb3fee4d722
+- location:
+    git: git@github.com:BlairArchibald/bitSetArray.git
+    commit: 26d7dd146e7e18a843e89d986ad91814329a346b
+- location:
+    git: http://code.mathr.co.uk/bitwise.git
+    commit: 158ec3c370c2008d6a7b525346b07c57827a202b
+
+extra-deps: []
+resolver: lts-5.12

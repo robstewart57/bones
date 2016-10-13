@@ -1,0 +1,47 @@
+name:                bones-maxclique
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            http://github.com/BlairArchibald/bones-maxclique#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Blair Archibald
+maintainer:          b.archibald.1@research.gla.ac.uk
+copyright:           Copyright: (c) 2016 Blair Archibald
+category:            parallelism
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+executable bones-maxclique
+  hs-source-dirs:      src/
+  main-is:             Main.hs
+  other-modules:       DIMACParser
+                     , Graph
+                     , GraphBitArray
+                     , GraphBitSet
+                     , Clique
+                     , Solvers.SequentialSolver
+                     , Solvers.SequentialSolverBitSetArray
+                     , Solvers.SequentialSolverBBMC
+                     , Solvers.BonesSolver
+  ghc-options:         -threaded -rtsopts -O2 -funbox-strict-fields
+  build-depends:       array                >= 0.5      && < 0.6
+                     , base                 >= 4.8      && < 5
+                     , bones                == 0.1.0.0
+                     , bitSetArray          >= 0.1      && < 0.2
+                     , cereal               >= 0.4      && < 0.6
+                     , clock                >= 0.4.1    && < 0.7
+                     , containers           >= 0.5      && < 0.6
+                     , deepseq              >= 1.3      && < 1.5
+                     , template-haskell     >= 2.9      && < 2.11
+                     , optparse-applicative >= 0.11     && < 0.13
+                     , hdph                 == 0.2.3
+                     , vector               >= 0.10.12
+                     , bitwise              >= 0.1.1
+                     , parallel             == 3.2.*
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/BlairArchibald/bones-maxclique
