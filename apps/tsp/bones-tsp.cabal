@@ -20,4 +20,5 @@ executable bones-tsp
   build-depends:       base                 >= 4.8      && < 5
                      , bones                == 0.1.0.0
                      , optparse-applicative >= 0.11     && < 0.13
+                     , regex-posix          >= 0.95     && < 1.0
   default-language:    Haskell2010
