@@ -8,6 +8,7 @@ packages:
 - lib/
 - apps/maxclique
 - apps/knapsack
+- apps/tsp
 - location:
     git: git@github.com:BlairArchibald/HdpH.git
     commit: 51a43bd39dbbc9e3de182997752946b4f93e3550
