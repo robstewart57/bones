@@ -7,8 +7,6 @@ import Options.Applicative
 import System.Environment (getArgs)
 import System.IO.Error (catchIOError)
 
-import Text.Regex.Posix
-
 data Skeleton = Ordered | Unordered deriving (Read, Show)
 
 data Options = Options
