@@ -23,3 +23,4 @@ executable bones-tsp
                      , hdph                 == 0.2.3
                      , optparse-applicative >= 0.11     && < 0.13
   default-language:    Haskell2010
+  ghc-options:         -threaded -rtsopts -O2 -funbox-strict-fields

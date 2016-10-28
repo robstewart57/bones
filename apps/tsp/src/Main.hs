@@ -8,10 +8,15 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAnd
                                                            , PruneType(..), ToCFns(..))
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
+import           Control.Exception        (evaluate)
+import           Control.Monad (when)
+
 import           Control.Parallel.HdpH
 import qualified Control.Parallel.HdpH    as HdpH (declareStatic)
 
+
 import Data.Array.Unboxed
+import Data.IORef
 
 import Options.Applicative
 
@@ -41,12 +46,12 @@ optionParser = Options
 optsParser :: ParserInfo Options
 optsParser = info (helper <*> optionParser) (fullDesc <> progDesc "Solve TSP" <> header "TSP")
 
-parseHdpHOpts :: [String] -> IO (RTSConf, Int, [String])
+parseHdpHOpts :: [String] -> IO (RTSConf, [String])
 parseHdpHOpts args = do
   either_conf <- updateConf args defaultRTSConf
   case either_conf of
-    Left err_msg             -> error $ "parseHdpHOpts: " ++ err_msg
-    Right (conf, [])         -> return (conf, 0, [])
+    Left err_msg     -> error $ "parseHdpHOpts: " ++ err_msg
+    Right (conf, args') -> return (conf, args')
 
 -- Simple TSPLib Parser
 -- FIXME: This might need to be real rather than Int
@@ -109,22 +114,48 @@ type Solution = (Path, Int)
 
 type SearchNode = (Solution, Int, [Location])
 
+-- Only update Bnd when we reach the root again
 orderedGenerator :: SearchNode -> Par [Par SearchNode]
-orderedGenerator = undefined
+orderedGenerator (([], 0), lbnd, rem) =
+  return $ map constructTopLevel rem
+  where
+    constructTopLevel l = return (([l],0), lbnd, filter (\o -> o /= l) rem)
+
+orderedGenerator ((path, pathL), lbnd, rem) = do
+  distances  <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
+
+  return $ map (constructNode distances) rem
+
+  -- TODO: For efficiency we might want to store the paths backwards (or use vector)
+  where
+        constructNode :: DistanceMatrix -> Location -> Par SearchNode
+        constructNode dist loc = do
+          let newPath  = (path ++ [loc])
+              newDist  = pathL + dist ! (last path, loc)
+              newRem   = filter (\o -> o /= loc) rem
+
+          case null newRem of
+            True ->
+              let newPath'  = (newPath ++ [head path])
+                  newDist'  = pathL + dist ! (last newPath, head path)
+              in  return ((newPath',newDist'), newDist', [])
+            False -> return ((newPath,newDist), lbnd, newRem)
 
 pruningPredicate :: SearchNode -> Int -> Par PruneType
-pruningPredicate = undefined
+pruningPredicate _ gbnd = return NoPrune -- for now
 
-strengthen       :: SearchNode -> Int -> Bool
-strengthen       = undefined
+strengthen :: SearchNode -> Int -> Bool
+strengthen (_, lbnd, _) gbnd = lbnd < gbnd
 
 -- Other closury stuff
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
-orderedSearch distancs depth dds = do
+orderedSearch distances depth dds = do
+  io $ newIORef distances >>= addGlobalSearchSpaceToRegistry
+
   (path, _) <- Safe.search
       dds
       depth
-      (([],0), 0, [])
+      (([],0), maxBound :: Int, [1 .. (fst . snd $ bounds distances)])
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
@@ -180,8 +211,12 @@ declareStatic = mconcat
 main :: IO ()
 main = do
   args <- getArgs
-  opts <- handleParseResult $ execParserPure defaultPrefs optsParser args
+  (conf, args') <- parseHdpHOpts args
+
+  opts <- handleParseResult $ execParserPure defaultPrefs optsParser args'
 
   nodes <- readData $ testFile opts
   let dm = buildDistanceMatrix nodes
-  print $ dm ! (30,40)
+
+  res <- evaluate =<< runParIO conf (orderedSearch dm 1 False)
+  print res
