@@ -246,12 +246,32 @@ declareStatic = mconcat
   [
     HdpH.declareStatic
   , Safe.declareStatic
+
+  -- Types
+  , declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Int [Location]))
+  , declare (staticToClosure :: StaticToClosure (ToCFns Solution Int [Location]))
+
+  -- Functions
+  , declare $(static 'orderedGenerator)
+  , declare $(static 'pruningPredicate)
+  , declare $(static 'strengthen)
+
+  -- Explicit ToClosures
+  , declare $(static 'toClosureInt)
+  , declare $(static 'toClosureInt_abs)
+  , declare $(static 'toClosureSol)
+  , declare $(static 'toClosureSol_abs)
+  , declare $(static 'toClosureLocationList)
+  , declare $(static 'toClosureLocationList_abs)
+  , declare $(static 'toClosureSearchNode)
+  , declare $(static 'toClosureSearchNode_abs)
   ]
 
 main :: IO ()
 main = do
   args <- getArgs
   (conf, args') <- parseHdpHOpts args
+  register $ Main.declareStatic
 
   opts <- handleParseResult $ execParserPure defaultPrefs optsParser args'
 
