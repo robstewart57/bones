@@ -18,6 +18,8 @@ import qualified Control.Parallel.HdpH    as HdpH (declareStatic)
 import Data.Array.Unboxed
 import Data.IORef
 
+import System.Clock
+
 import Options.Applicative
 
 import System.Environment (getArgs)
@@ -280,6 +282,26 @@ declareStatic = mconcat
   , declare $(static 'toClosureSearchNode)
   , declare $(static 'toClosureSearchNode_abs)
   ]
+
+--------------------------------------------------------------------------------
+-- Timing Functions
+--------------------------------------------------------------------------------
+
+timeIOms :: IO a -> IO (a, Double)
+timeIOms action = do
+  s <- getTime Monotonic
+  x <- action
+  e <- getTime Monotonic
+  return (x, diffTime s e)
+
+diffTime :: TimeSpec -> TimeSpec -> Double
+diffTime (TimeSpec s1 n1) (TimeSpec s2 n2) = fromIntegral (t2 - t1)
+                                                         /
+                                             fromIntegral (10 ^ 6)
+  where t1 = (fromIntegral s1 * 10 ^ 9) + fromIntegral n1
+        t2 = (fromIntegral s2 * 10 ^ 9) + fromIntegral n2
+
+--------------------------------------------------------------------------------
 
 main :: IO ()
 main = do
