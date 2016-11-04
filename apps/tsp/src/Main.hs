@@ -16,6 +16,7 @@ import           Control.Parallel.HdpH
 import qualified Control.Parallel.HdpH    as HdpH (declareStatic)
 
 import Data.Array.Unboxed
+import Data.Maybe (fromMaybe)
 import Data.IORef
 
 import System.Clock
@@ -28,8 +29,10 @@ import System.IO.Error (catchIOError)
 data Skeleton = Ordered | Unordered deriving (Read, Show)
 
 data Options = Options
-  { skel :: Skeleton
-  , testFile :: FilePath
+  { skel       :: Skeleton
+  , testFile   :: FilePath
+  , spawnDepth :: Maybe Int
+  , dds        :: Bool
   }
 
 optionParser :: Parser Options
@@ -43,6 +46,15 @@ optionParser = Options
                  long "testFile"
               <> short 'f'
               <> help "Location of input tsplib file"
+              )
+          <*> optional (option auto (
+                 long "spawnDepth"
+              <> short 'd'
+              <> help "Spawn depth threshold"
+              ))
+          <*> switch
+              (  long "discrepancySearch"
+              <> help "Use discrepancy search ordering"
               )
 
 optsParser :: ParserInfo Options
@@ -310,16 +322,20 @@ main = do
   register $ Main.declareStatic
 
   opts <- handleParseResult $ execParserPure defaultPrefs optsParser args'
+  let depth = fromMaybe 0 (spawnDepth opts)
 
   nodes <- readData $ testFile opts
   let dm = buildDistanceMatrix nodes
-
 
   -- Must be added before the skeleton call to ensure that all nodes have access
   -- to the global data
   newIORef dm >>= addGlobalSearchSpaceToRegistry
 
-  res <- evaluate =<< runParIO conf (orderedSearch dm 1 False)
+  res <- case skel opts of
+    Ordered   ->
+      evaluate =<< runParIO conf (orderedSearch dm depth (dds opts))
+    Unordered -> undefined
+
   case res of
     Nothing -> return ()
     Just path -> do
