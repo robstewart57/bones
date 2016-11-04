@@ -186,14 +186,30 @@ strengthen (_, lbnd, _) gbnd = lbnd < gbnd
 pathLength :: DistanceMatrix -> Path -> Int
 pathLength dists locs = sum . map (\(n,m) -> dists ! (n,m)) $ zip locs (tail locs)
 
+greedyNN :: DistanceMatrix -> [Location] -> Path
+greedyNN dists (l:ls) = go l ls []
+  where
+    -- We add the loopback to root here
+    go cur [] p = p ++ [cur] ++ [head p]
+
+    go cur ls p = let m = findMinEdge cur ls
+                      ls' = filter (\n -> n /= m) ls
+                      p' = p ++ [cur]
+                  in go m ls' p'
+
+    findMinEdge n = fst . foldl (\acc@(_, s) m -> if dists ! (n, m) < s then (m, dists ! (n,m)) else acc) (0, maxBound :: Int)
 
 -- Other closury stuff
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
 orderedSearch distances depth dds = do
+
+  let allLocs = [1 .. (fst . snd $ bounds distances)]
+      greedy = greedyNN distances allLocs
+
   (path, _) <- Safe.search
       dds
       depth
-      (([],0), maxBound :: Int, [1 .. (fst . snd $ bounds distances)])
+      (([], 0), pathLength distances greedy, allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
