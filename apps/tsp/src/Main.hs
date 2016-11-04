@@ -15,7 +15,6 @@ import           Control.Monad (when)
 import           Control.Parallel.HdpH
 import qualified Control.Parallel.HdpH    as HdpH (declareStatic)
 
-
 import Data.Array.Unboxed
 import Data.IORef
 
@@ -146,6 +145,13 @@ pruningPredicate :: SearchNode -> Int -> Par PruneType
 pruningPredicate ((path, pathL), _, rem) gbnd = do
   dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
   let lb' = lb path rem dists
+  -- Debugging if required
+  -- io . putStrLn $ "(Pruning) Path: " ++ show path ++ ", len: " ++ show pathL
+  -- io . putStrLn $ "(Pruning) Rem: "  ++ show rem
+  -- io . putStrLn $ "(Pruning) gbnd rem: " ++ show gbnd
+  -- io . putStrLn $ "(Pruning) lb rem: "   ++ show lb'
+  -- io . putStrLn $ "(Pruning) lb full: "  ++ show (pathL + lb')
+  -- io . putStrLn $ "(Pruning) shouldPrune: "  ++ show (pathL + lb' > gbnd)
 
   if pathL + lb path rem dists > gbnd
     then return Prune
@@ -156,12 +162,9 @@ lb :: [Location] -> [Location] -> DistanceMatrix -> Int
 lb path rem dists
   | length path <= 1 = (sum $ map sumTuple $ map (\n -> low2 n rem) rem) `div` 2
   | otherwise = let start = head path
-                    startNext = head $ tail path
                     end   = last path
                     available = (start:end:rem)
-                in ( dists ! (start, startNext)
-                   + dists ! (last path, last (init path))
-                   + low1 start rem
+                in ( low1 start rem
                    + low1 end rem
                    + (sum $ map sumTuple $ map (\n -> low2 n available) rem)
                    ) `div` 2
