@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Main where
 
@@ -137,15 +138,51 @@ orderedGenerator ((path, pathL), lbnd, rem) = do
           case null newRem of
             True ->
               let newPath'  = (newPath ++ [head path])
-                  newDist'  = pathL + dist ! (last newPath, head path)
-              in  return ((newPath',newDist'), newDist', [])
+                  newDist'  = newDist + dist ! (last newPath, head path)
+              in return ((newPath',newDist'), newDist', [])
             False -> return ((newPath,newDist), lbnd, newRem)
 
 pruningPredicate :: SearchNode -> Int -> Par PruneType
-pruningPredicate _ gbnd = return NoPrune -- for now
+pruningPredicate ((path, pathL), _, rem) gbnd = do
+  dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
+  let lb' = lb path rem dists
+
+  if pathL + lb path rem dists > gbnd
+    then return Prune
+    else return NoPrune
+
+-- Not sure this is quite right, I get some weird negative answers every now and then...
+lb :: [Location] -> [Location] -> DistanceMatrix -> Int
+lb path rem dists
+  | length path <= 1 = (sum $ map sumTuple $ map (\n -> low2 n rem) rem) `div` 2
+  | otherwise = let start = head path
+                    startNext = head $ tail path
+                    end   = last path
+                    available = (start:end:rem)
+                in ( dists ! (start, startNext)
+                   + dists ! (last path, last (init path))
+                   + low1 start rem
+                   + low1 end rem
+                   + (sum $ map sumTuple $ map (\n -> low2 n available) rem)
+                   ) `div` 2
+  where
+    low1 n ns = foldl (\l1 m -> if n /= m && dists ! (n,m) < l1 then dists ! (n,m) else l1) (maxBound :: Int) ns
+    low2 n ns = foldl (findLowest n) (maxBound :: Int, maxBound :: Int) ns
+
+    sumTuple = uncurry (+)
+
+    findLowest n (l1, l2) m
+      | n == m = (l1,l2)
+      | dists ! (n,m) < l1 = (dists ! (n,m), l1)
+      | dists ! (n,m) < l2 = (l1, dists ! (n,m))
+      | otherwise = (l1,l2)
 
 strengthen :: SearchNode -> Int -> Bool
 strengthen (_, lbnd, _) gbnd = lbnd < gbnd
+
+pathLength :: DistanceMatrix -> Path -> Int
+pathLength dists locs = sum . map (\(n,m) -> dists ! (n,m)) $ zip locs (tail locs)
+
 
 -- Other closury stuff
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
@@ -219,4 +256,8 @@ main = do
   let dm = buildDistanceMatrix nodes
 
   res <- evaluate =<< runParIO conf (orderedSearch dm 1 False)
-  print res
+  case res of
+    Nothing -> return ()
+    Just path -> do
+      putStrLn $ "Path: "   ++ show path
+      putStrLn $ "Length: " ++ show (pathLength dm path)
