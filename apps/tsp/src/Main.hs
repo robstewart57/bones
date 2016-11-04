@@ -190,8 +190,6 @@ pathLength dists locs = sum . map (\(n,m) -> dists ! (n,m)) $ zip locs (tail loc
 -- Other closury stuff
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
 orderedSearch distances depth dds = do
-  io $ newIORef distances >>= addGlobalSearchSpaceToRegistry
-
   (path, _) <- Safe.search
       dds
       depth
@@ -277,6 +275,11 @@ main = do
 
   nodes <- readData $ testFile opts
   let dm = buildDistanceMatrix nodes
+
+
+  -- Must be added before the skeleton call to ensure that all nodes have access
+  -- to the global data
+  newIORef dm >>= addGlobalSearchSpaceToRegistry
 
   res <- evaluate =<< runParIO conf (orderedSearch dm 1 False)
   case res of
