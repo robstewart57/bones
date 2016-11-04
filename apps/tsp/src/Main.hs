@@ -5,6 +5,7 @@
 module Main where
 
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
                                                            , PruneType(..), ToCFns(..))
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
@@ -211,7 +212,9 @@ greedyNN dists (l:ls) = go l ls []
                       p' = p ++ [cur]
                   in go m ls' p'
 
-    findMinEdge n = fst . foldl (\acc@(_, s) m -> if dists ! (n, m) < s then (m, dists ! (n,m)) else acc) (0, maxBound :: Int)
+    findMinEdge n = fst . foldl (\acc@(_, s) m -> if dists ! (n, m) < s
+                                                  then (m, dists ! (n,m))
+                                                  else acc) (0, maxBound :: Int)
 
 -- Other closury stuff
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
@@ -222,6 +225,27 @@ orderedSearch distances depth dds = do
 
   (path, _) <- Safe.search
       dds
+      depth
+      (([], 0), pathLength distances greedy, allLocs)
+      (toClosure (BAndBFunctions
+                  $(mkClosure [| orderedGenerator |])
+                  $(mkClosure [| pruningPredicate |])
+                  $(mkClosure [| strengthen |])))
+      (toClosure (ToCFns
+                  $(mkClosure [| toClosureSol |])
+                  $(mkClosure [| toClosureInt |])
+                  $(mkClosure [| toClosureLocationList |])
+                  $(mkClosure [| toClosureSearchNode |])))
+
+  return path
+
+unorderedSearch :: DistanceMatrix -> Int -> Par Path
+unorderedSearch distances depth = do
+
+  let allLocs = [1 .. (fst . snd $ bounds distances)]
+      greedy = greedyNN distances allLocs
+
+  (path, _) <- Broadcast.search
       depth
       (([], 0), pathLength distances greedy, allLocs)
       (toClosure (BAndBFunctions
@@ -273,7 +297,6 @@ declareStatic :: StaticDecl
 declareStatic = mconcat
   [
     HdpH.declareStatic
-  , Safe.declareStatic
 
   -- Types
   , declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Int [Location]))
@@ -299,8 +322,8 @@ declareStatic = mconcat
 -- Timing Functions
 --------------------------------------------------------------------------------
 
-timeIOms :: IO a -> IO (a, Double)
-timeIOms action = do
+timeIOs :: IO a -> IO (a, Double)
+timeIOs action = do
   s <- getTime Monotonic
   x <- action
   e <- getTime Monotonic
@@ -309,7 +332,7 @@ timeIOms action = do
 diffTime :: TimeSpec -> TimeSpec -> Double
 diffTime (TimeSpec s1 n1) (TimeSpec s2 n2) = fromIntegral (t2 - t1)
                                                          /
-                                             fromIntegral (10 ^ 6)
+                                             fromIntegral (10 ^ 9)
   where t1 = (fromIntegral s1 * 10 ^ 9) + fromIntegral n1
         t2 = (fromIntegral s2 * 10 ^ 9) + fromIntegral n2
 
@@ -319,7 +342,6 @@ main :: IO ()
 main = do
   args <- getArgs
   (conf, args') <- parseHdpHOpts args
-  register $ Main.declareStatic
 
   opts <- handleParseResult $ execParserPure defaultPrefs optsParser args'
   let depth = fromMaybe 0 (spawnDepth opts)
@@ -331,13 +353,17 @@ main = do
   -- to the global data
   newIORef dm >>= addGlobalSearchSpaceToRegistry
 
-  res <- case skel opts of
-    Ordered   ->
-      evaluate =<< runParIO conf (orderedSearch dm depth (dds opts))
-    Unordered -> undefined
+  (res, tCompute) <- case skel opts of
+    Ordered   -> do
+      register $ Main.declareStatic <> Safe.declareStatic
+      timeIOs $ evaluate =<< runParIO conf (orderedSearch dm depth (dds opts))
+    Unordered -> do
+      register $ Main.declareStatic <> Broadcast.declareStatic
+      timeIOs $ evaluate =<< runParIO conf (unorderedSearch dm depth)
 
   case res of
     Nothing -> return ()
     Just path -> do
       putStrLn $ "Path: "   ++ show path
       putStrLn $ "Length: " ++ show (pathLength dm path)
+      putStrLn $ "TIMED: "  ++ show tCompute ++ " s"
