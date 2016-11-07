@@ -27,6 +27,8 @@ import Options.Applicative
 import System.Environment (getArgs)
 import System.IO.Error (catchIOError)
 
+import Text.Regex.Posix
+
 data Skeleton = Ordered | Unordered deriving (Read, Show)
 
 data Options = Options
@@ -69,12 +71,11 @@ parseHdpHOpts args = do
     Right (conf, args') -> return (conf, args')
 
 -- Simple TSPLib Parser
--- FIXME: This might need to be real rather than Int
 data NodeInfoEUC = NodeInfoEUC
   {
     nodeInfo_id :: Int
-  , nodeInfo_x  :: Int
-  , nodeInfo_y  :: Int
+  , nodeInfo_x  :: Float
+  , nodeInfo_y  :: Float
   } deriving (Show)
 
 instance Eq NodeInfoEUC where
@@ -84,19 +85,20 @@ instance Ord NodeInfoEUC where
   compare n1 n2 = compare (nodeInfo_id n1) (nodeInfo_id n2)
 
 checkInputType :: [String] -> Bool
-checkInputType = elem "EDGE_WEIGHT_TYPE : EUC_2D"
+checkInputType ls = any (=~ "EDGE_WEIGHT_TYPE\\s*:\\s*EUC_2D") ls
+                 || any (=~ "EDGE_WEIGHT_TYPE\\s*:\\s*GEO") ls
 
 parseCoords :: [String] -> [NodeInfoEUC]
 parseCoords ls = map parseNodeInfo $ coordData ls
   where
-    coordData = takeWhile (/= "EOF") . tail . dropWhile (/= "NODE_COORD_SECTION")
+    coordData = takeWhile (\l -> not $ l =~ "EOF") . tail . dropWhile (\l -> not $ l =~ "NODE_COORD_SECTION")
     parseNodeInfo cd = case words cd of
       [i,x,y] -> NodeInfoEUC (read i) (read x) (read y)
-      _       -> error "Invalid point detected"
+      x       -> error $ "Invalid point detected: " ++ show x
 
 calcDistanceEUC2D :: NodeInfoEUC -> NodeInfoEUC -> Int
 calcDistanceEUC2D (NodeInfoEUC _ x1 y1) (NodeInfoEUC _ x2 y2) = intSqrt $ (x1 - x2)^2 + (y1 - y2)^2
-  where intSqrt = round . sqrt . fromIntegral
+  where intSqrt = round . sqrt
 
 readData :: FilePath -> IO [NodeInfoEUC]
 readData fp = do
