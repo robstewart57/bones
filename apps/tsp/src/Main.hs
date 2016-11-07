@@ -4,8 +4,8 @@
 
 module Main where
 
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
 import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
                                                            , PruneType(..), ToCFns(..))
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
@@ -223,7 +223,7 @@ orderedSearch distances depth dds = do
   let allLocs = [1 .. (fst . snd $ bounds distances)]
       greedy = greedyNN distances allLocs
 
-  (path, _) <- Safe.search
+  (path, _) <- Ordered.search
       dds
       depth
       (([], 0), pathLength distances greedy, allLocs)
@@ -245,7 +245,7 @@ unorderedSearch distances depth = do
   let allLocs = [1 .. (fst . snd $ bounds distances)]
       greedy = greedyNN distances allLocs
 
-  (path, _) <- Broadcast.search
+  (path, _) <- Unordered.search
       depth
       (([], 0), pathLength distances greedy, allLocs)
       (toClosure (BAndBFunctions
@@ -355,10 +355,10 @@ main = do
 
   (res, tCompute) <- case skel opts of
     Ordered   -> do
-      register $ Main.declareStatic <> Safe.declareStatic
+      register $ Main.declareStatic <> Ordered.declareStatic
       timeIOs $ evaluate =<< runParIO conf (orderedSearch dm depth (dds opts))
     Unordered -> do
-      register $ Main.declareStatic <> Broadcast.declareStatic
+      register $ Main.declareStatic <> Unordered.declareStatic
       timeIOs $ evaluate =<< runParIO conf (unorderedSearch dm depth)
 
   case res of

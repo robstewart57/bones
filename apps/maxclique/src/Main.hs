@@ -48,8 +48,8 @@ import           Solvers.BonesSolver ({- findSolution, -} randomWSIntSet, random
                                       {- safeSkeletonIntSetDynamic, -} safeSkeletonBitSetArray)
 import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
@@ -90,12 +90,12 @@ timeIOS = timeIO diffTimeS
 data Algorithm = Sequential
                | SequentialBBMC
                | SequentialBitSetArray
-               | RandomWSIntSet
-               | RandomWSBitArray
+               | UnorderedIntSet
+               | UnorderedBBMC
+               | OrderedIntSet
+               | OrderedBBMC
              -- | FindSolution
-               | SafeSkeletonIntSet
-             -- | SafeSkeletonIntSetDynamic
-               | SafeSkeletonBitArray
+             -- | OrderedSkeletonIntSetDynamic
               deriving (Read, Show)
 
 data Options = Options
@@ -152,11 +152,10 @@ optionParser = Options
   where printAlgorithms = unlines ["[Sequential,"
                                   ," SequentialBitSetArray,"
                                   ," SequentialBBMC,"
-                                  ," RandomWSIntSet,"
-                                  ," RandomWSBitArray,"
-                                  ," SafeSkeletonIntSet,"
-                                  -- ," SafeSkeletonIntSetDynamic,"
-                                  ," SafeSkeletonBitArray]"]
+                                  ," OrderedIntSet,"
+                                  ," OrderedBBMC,"
+                                  ," UnorderedIntSet,"
+                                  ," UnorderedBBMC]"]
 
 optsParser = info (helper <*> optionParser)
              (  fullDesc
@@ -262,8 +261,8 @@ main = do
         let (bigCstar', !call') = sequentialMaxCliqueBBMC n edges
         evaluate (rnf bigCstar')
         return $ (Just bigCstar')
-    RandomWSIntSet -> do
-      register (Main.declareStatic <> Broadcast.declareStatic)
+    UnorderedIntSet -> do
+      register (Main.declareStatic <> Unordered.declareStatic)
 
       -- -- Make sure the graph is available globally
       graph <- newIORef bigG
@@ -271,8 +270,8 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (randomWSIntSet bigG depth')
-    RandomWSBitArray -> do
-      register (Main.declareStatic <> Broadcast.declareStatic)
+    UnorderedBBMC -> do
+      register (Main.declareStatic <> Unordered.declareStatic)
 
       g  <- mkGraphArray bigUG
       gC <- mkGraphArray $ complementUG bigUG
@@ -282,8 +281,8 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (randomWSBitArray n depth')
-    SafeSkeletonIntSet -> do
-      register (Main.declareStatic <> Safe.declareStatic)
+    OrderedIntSet -> do
+      register (Main.declareStatic <> Ordered.declareStatic)
 
       -- -- Make sure the graph is available globally
       graph <- newIORef bigG
@@ -292,8 +291,8 @@ main = do
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSet bigG depth' discrepancySearch)
   {-
-    SafeSkeletonIntSetDynamic -> do
-      register (Main.declareStatic <> Safe.declareStatic)
+    OrderedSkeletonIntSetDynamic -> do
+      register (Main.declareStatic <> Ordered.declareStatic)
 
       -- -- Make sure the graph is available globally
       graph <- newIORef bigG
@@ -306,8 +305,8 @@ main = do
         then error "Must provide the NumDynamicTasks (-t) argument when using dynamic work generation"
         else timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSetDynamic bigG depth' ntasks)
    -}
-    SafeSkeletonBitArray -> do
-      register (Main.declareStatic <> Safe.declareStatic)
+    OrderedBBMC -> do
+      register (Main.declareStatic <> Ordered.declareStatic)
 
       -- -- Make sure the graph is available globally
 
@@ -326,7 +325,7 @@ main = do
                                       \when using the FindSolution algorithm"
                      Just s -> return s
 
-      register (Main.declareStatic <> Broadcast.declareStatic)
+      register (Main.declareStatic <> Unordered.declareStatic)
 
       g  <- mkGraphArray bigUG
       gC <- mkGraphArray $ complementUG bigUG

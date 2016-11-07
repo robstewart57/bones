@@ -5,8 +5,8 @@
 
 module Knapsack
 (
-    skeletonSafe
-  , skeletonBroadcast
+    skeletonOrdered
+  , skeletonUnordered
   , skeletonSequential
   , sequentialInlined
   , declareStatic
@@ -20,8 +20,8 @@ import Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions
                                                  , PruneType(..), ToCFns(..))
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
 
 import Control.DeepSeq (NFData)
@@ -42,9 +42,9 @@ type Item = Int
 instance Serialize Solution where
 instance NFData Solution where
 
-skeletonSafe :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
-skeletonSafe items capacity depth diversify =
-  Safe.search
+skeletonOrdered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
+skeletonOrdered items capacity depth diversify =
+  Ordered.search
     diversify
     depth
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
@@ -58,9 +58,9 @@ skeletonSafe items capacity depth diversify =
       $(mkClosure [| toClosureItemList |])
       $(mkClosure [| toClosureKPNode |])))
 
-skeletonBroadcast :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
-skeletonBroadcast items capacity depth diversify =
-  Broadcast.search
+skeletonUnordered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
+skeletonUnordered items capacity depth diversify =
+  Unordered.search
     depth
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
     (toClosure (BAndBFunctions
@@ -312,6 +312,4 @@ declareStatic = mconcat
   , declare $(static 'toClosureSolution_abs)
   , declare $(static 'toClosureKPNode)
   , declare $(static 'toClosureKPNode_abs)
-
-  , Safe.declareStatic
   ]

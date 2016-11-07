@@ -28,8 +28,8 @@ import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces
 import qualified Knapsack as KL
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe as Safe
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
 
 -- Simple program to solve Knapsack instances using the bones skeleton library.
 
@@ -37,9 +37,9 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
 -- Argument Handling
 --------------------------------------------------------------------------------
 
-data Algorithm = SafeSkeleton
-               | BroadcastSkeleton
-               | SequentialSkeleton
+data Algorithm = Ordered
+               | Unordered
+               | Sequential
                | SequentialExpand
                deriving (Read, Show)
 
@@ -61,8 +61,8 @@ optionParser = Options
                 (  long "algorithm"
                 <> short 'a'
                 <> help "Which Knapsack algorithm to use: \
-                       \ [SafeSkeleton, BroadcastSkeleton,\
-                       \ SequentialSkeleton, SequentialExpand]"
+                       \ [Ordered, Unordered,\
+                       \ Sequential, SequentialExpand]"
                 )
           <*> optional (option auto
                 (   long "spawnDepth"
@@ -191,23 +191,23 @@ main = do
   newIORef its >>= addGlobalSearchSpaceToRegistry
 
   (s, tm) <- case alg of
-    SafeSkeleton -> do
-      register $ HdpH.declareStatic <> KL.declareStatic <> Safe.declareStatic
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSafe items' cap depth' True)
+    Ordered -> do
+      register $ HdpH.declareStatic <> KL.declareStatic <> Ordered.declareStatic
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonOrdered items' cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ _ is prof weig) ->
               return (Just (is, prof, weig), t)
 
-    BroadcastSkeleton -> do
-      register $ HdpH.declareStatic <> KL.declareStatic <> Broadcast.declareStatic
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonBroadcast items' cap depth' True)
+    Unordered -> do
+      register $ HdpH.declareStatic <> KL.declareStatic <> Unordered.declareStatic
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonUnordered items' cap depth' True)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ _ is prof weig) ->
               return (Just (is, prof, weig), t)
 
-    SequentialSkeleton -> do
+    Sequential -> do
       register $ HdpH.declareStatic
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential items' cap)
       case sol of

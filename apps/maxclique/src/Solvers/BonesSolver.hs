@@ -40,8 +40,8 @@ import           GraphBitArray         (GraphArray, colourOrderBitSetArray, inte
 import           Clique                (Clique, emptyClique)
 import           System.IO.Unsafe      (unsafePerformIO)
 
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Broadcast as Broadcast
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Safe      as Safe
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered      as Ordered
 import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
                                                            , PruneType(..), ToCFns(..))
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
@@ -142,7 +142,7 @@ strengthenIS (_, lbnd, _) gbnd = lbnd > gbnd
 
 randomWSIntSet :: Graph -> Int -> Par Clique
 randomWSIntSet g depth = do
-  (vs, _) <- Broadcast.search
+  (vs, _) <- Unordered.search
         depth
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
         (toClosure (BAndBFunctions
@@ -161,7 +161,7 @@ randomWSBitArray :: Int -> Int -> Par Clique
 randomWSBitArray nVertices depth = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
-  (vs, _) <- Broadcast.search
+  (vs, _) <- Unordered.search
         depth
         (([], 0), 0, (nVertices, initSet))
         (toClosure (BAndBFunctions
@@ -183,7 +183,7 @@ randomWSBitArray nVertices depth = do
 
 safeSkeletonIntSet :: Graph -> Int -> Bool -> Par Clique
 safeSkeletonIntSet g depth diversify = do
-  (vs, _) <- Safe.search
+  (vs, _) <- Ordered.search
         diversify
         depth
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
@@ -203,7 +203,7 @@ safeSkeletonBitSetArray :: Int -> Int -> Bool -> Par Clique
 safeSkeletonBitSetArray nVertices depth diversify = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
-  (vs, _) <- Safe.search
+  (vs, _) <- Ordered.search
         diversify
         depth
         (([], 0), 0, (nVertices, initSet))
