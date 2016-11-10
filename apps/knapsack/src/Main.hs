@@ -234,7 +234,7 @@ main = do
         else putStrLn "Expected Result? False"
 
       putStrLn $ "Solution: " ++ show sol
-      putStrLn $ "computeTime: " ++ show tm ++ " s"
+      putStrLn $ "TIMED: " ++ show tm ++ " s"
 
 createGlobalArrays :: [(Int, Int, Int)] -> (Array Int Int, Array Int Int)
 createGlobalArrays its = ( array bnds (map (\(i, p, _) -> (i, p)) its)

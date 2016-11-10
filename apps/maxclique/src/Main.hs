@@ -346,5 +346,5 @@ main = do
       putStrLn $ "sort C*: " ++ show (sort bigCstar_alpha_inv)
       putStrLn $ "size: " ++ show clqSize
       putStrLn $ "isClique: " ++ show (isClique bigG clq)
-      putStrLn $ "t_compute: " ++ show t_compute ++ " s"
+      putStrLn $ "TIMED: " ++ show t_compute ++ " s"
       exitSuccess
