@@ -1,6 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Main where
 
@@ -11,12 +14,15 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAnd
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 import           Control.Exception        (evaluate)
-import           Control.Monad (when)
+import           Control.Monad (when, forM_)
+import           Control.Monad.ST
 
 import           Control.Parallel.HdpH
 import qualified Control.Parallel.HdpH    as HdpH (declareStatic)
 
 import Data.Array.Unboxed
+import Data.Array.ST
+import Data.Foldable (foldlM)
 import Data.Maybe (fromMaybe)
 import Data.IORef
 
@@ -161,7 +167,7 @@ orderedGenerator ((path, pathL), lbnd, rem) = do
 pruningPredicate :: SearchNode -> Int -> Par PruneType
 pruningPredicate ((path, pathL), _, rem) gbnd = do
   dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
-  let lb' = lb path rem dists
+  let lb = weightMST dists (head path) (last path:rem)
   -- Debugging if required
   -- io . putStrLn $ "(Pruning) Path: " ++ show path ++ ", len: " ++ show pathL
   -- io . putStrLn $ "(Pruning) Rem: "  ++ show rem
@@ -170,13 +176,12 @@ pruningPredicate ((path, pathL), _, rem) gbnd = do
   -- io . putStrLn $ "(Pruning) lb full: "  ++ show (pathL + lb')
   -- io . putStrLn $ "(Pruning) shouldPrune: "  ++ show (pathL + lb' > gbnd)
 
-  if pathL + lb path rem dists > gbnd
+  if pathL + lb > gbnd
     then return Prune
     else return NoPrune
 
--- Not sure this is quite right, I get some weird negative answers every now and then...
-lb :: [Location] -> [Location] -> DistanceMatrix -> Int
-lb path rem dists
+lbSimple :: [Location] -> [Location] -> DistanceMatrix -> Int
+lbSimple path rem dists
   | length path <= 1 = (sum $ map sumTuple $ map (\n -> low2 n rem) rem) `div` 2
   | otherwise = let start = head path
                     end   = last path
@@ -200,6 +205,9 @@ lb path rem dists
 strengthen :: SearchNode -> Int -> Bool
 strengthen (_, lbnd, _) gbnd = lbnd < gbnd
 
+
+-- TSP Utility functions
+
 pathLength :: DistanceMatrix -> Path -> Int
 pathLength dists locs = sum . map (\(n,m) -> dists ! (n,m)) $ zip locs (tail locs)
 
@@ -217,6 +225,62 @@ greedyNN dists (l:ls) = go l ls []
     findMinEdge n = fst . foldl (\acc@(_, s) m -> if dists ! (n, m) < s
                                                   then (m, dists ! (n,m))
                                                   else acc) (0, maxBound :: Int)
+
+-- MST
+type Weight = Int
+type WeightMap s = STUArray s Location Weight
+
+-- Returns the weight of an MST covering the set `vertices` plus `v0`;
+-- `vertices` must not contain `v0`.
+weightMST :: DistanceMatrix -> Location -> [Location] -> Weight
+weightMST dists v0 vertices = runST $ do
+  weight <- initPrim dists v0 vertices
+  let p (_, _, vertices) = null vertices
+  let f (!w, v0, !vertices) = do
+        (v',w') <- stepPrim dists weight v0 vertices
+        return (w + w', v', filter (/= v') vertices)
+  (!w, _, _) <- untilM p f (0, v0, vertices)
+  return w
+
+untilM :: (Monad m) => (a -> Bool) -> (a -> m a) -> a -> m a
+untilM p act = go
+  where
+    go x | p x       = return x
+         | otherwise = act x >>= go
+
+initPrim :: DistanceMatrix -> Location -> [Location] -> ST s (WeightMap s)
+initPrim dists v0 vs = do
+  let ((m,_),(n,_)) = bounds dists
+  weight <- newArray (m,n) 0
+  forM_ vs $ \ v -> writeArray weight v $ dists ! (v0, v)
+  return weight
+
+stepPrim :: forall s. DistanceMatrix -> WeightMap s -> Location -> [Location]
+                    -> ST s (Location, Weight)
+stepPrim dists weight v0 (v:vs) = do
+  w <- updateWeightMapPrim dists weight v0 v
+  foldlM f (v,w) vs
+    where
+      f :: (Location, Weight) -> Location -> ST s (Location, Weight)
+      f z@(_,w) v = do
+        w' <- updateWeightMapPrim dists weight v0 v
+        if w' < w then return (v,w') else return z
+
+updateWeightMapPrim :: DistanceMatrix -> WeightMap s -> Location -> Location -> ST s Weight
+updateWeightMapPrim dists weight v0 v = do
+  w <- readArray weight v
+  let w' = dists ! (v0, v)
+  if w' < w
+    then writeArray weight v w' >> return w'
+    else return w
+
+-- Test Instances
+testInstance1 :: DistanceMatrix
+testInstance1 = array ((1,1),(4,4))
+                      [((1,1),0), ((1,2),4), ((1,3),4), ((1,4),2),
+                       ((2,1),4), ((2,2),0), ((2,3),4), ((2,4),2),
+                       ((3,1),4), ((3,2),4), ((3,3),0), ((3,4),2),
+                       ((4,1),2), ((4,2),2), ((4,3),2), ((4,4),0)]
 
 -- Other closury stuff
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
