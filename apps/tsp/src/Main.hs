@@ -29,6 +29,9 @@ import Data.IORef
 import Data.Sequence ((|>), ViewR(..), ViewL(..))
 import qualified Data.Sequence as Seq
 
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as LocationSet
+
 import System.Clock
 
 import Options.Applicative
@@ -135,7 +138,6 @@ buildDistanceMatrix nodes = array ((minId, minId), (maxId, maxId)) distances
 -- Skeleton Functions
 -- SearchNode :: Sol, Bound, Space
 type Location = Int
-
 type Path     = Seq.Seq Location
 
 -- Unsafe lookups for first and last Data.Sequence elements (for performance)
@@ -149,38 +151,38 @@ unsafeLast path = case Seq.viewr path of
   EmptyR  -> error "No last elem of path"
   as :> a -> a
 
-type Solution = (Path, Int)
-
-type SearchNode = (Solution, Int, [Location])
+type LocationSet = IntSet
+type Solution   = (Path, Int)
+type SearchNode = (Solution, Int, LocationSet)
 
 -- Only update Bnd when we reach the root again
 orderedGenerator :: SearchNode -> Par [Par SearchNode]
 orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
-  Seq.EmptyL -> return $ map constructTopLevel rem
+  Seq.EmptyL -> return $ map constructTopLevel (LocationSet.elems rem)
   _          -> do
     distances  <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
-    return $ map (constructNode distances) rem
+    return $ map (constructNode distances) (LocationSet.elems rem)
 
   where
     constructNode :: DistanceMatrix -> Location -> Par SearchNode
     constructNode dist loc = do
       let newPath  = (path |> loc)
           newDist  = pathL + dist ! (unsafeLast path, loc)
-          newRem   = filter (\o -> o /= loc) rem
+          newRem   = LocationSet.delete loc rem
 
-      case null newRem of
+      case LocationSet.null newRem of
         True ->
           let newPath'  = (newPath |> unsafeFirst path)
               newDist'  = newDist + dist ! (unsafeLast newPath, unsafeFirst path)
-          in return ((newPath',newDist'), newDist', [])
+          in return ((newPath',newDist'), newDist', LocationSet.empty)
         False -> return ((newPath,newDist), lbnd, newRem)
 
-    constructTopLevel l = return ((Seq.singleton l, 0), lbnd, filter (\o -> o /= l) rem)
+    constructTopLevel l = return ((Seq.singleton l, 0), lbnd, LocationSet.delete l rem)
 
 pruningPredicate :: SearchNode -> Int -> Par PruneType
 pruningPredicate ((path, pathL), _, rem) gbnd = do
   dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
-  let lb = weightMST dists (unsafeFirst path) (unsafeLast path : rem)
+  let lb = weightMST dists (unsafeFirst path) (LocationSet.insert (unsafeLast path) rem)
   -- Debugging if required
   -- io . putStrLn $ "(Pruning) Path: " ++ show path ++ ", len: " ++ show pathL
   -- io . putStrLn $ "(Pruning) Rem: "  ++ show rem
@@ -245,13 +247,13 @@ type WeightMap s = STUArray s Location Weight
 
 -- Returns the weight of an MST covering the set `vertices` plus `v0`;
 -- `vertices` must not contain `v0`.
-weightMST :: DistanceMatrix -> Location -> [Location] -> Weight
+weightMST :: DistanceMatrix -> Location -> LocationSet -> Weight
 weightMST dists v0 vertices = runST $ do
-  weight <- initPrim dists v0 vertices
-  let p (_, _, vertices) = null vertices
+  weight <- initPrim dists v0 (LocationSet.toList vertices)
+  let p (_, _, vertices) = LocationSet.null vertices
   let f (!w, v0, !vertices) = do
-        (v',w') <- stepPrim dists weight v0 vertices
-        return (w + w', v', filter (/= v') vertices)
+        (v',w') <- stepPrim dists weight v0 (LocationSet.toList vertices)
+        return (w + w', v', LocationSet.delete v' vertices)
   (!w, _, _) <- untilM p f (0, v0, vertices)
   return w
 
@@ -300,12 +302,12 @@ orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
 orderedSearch distances depth dds = do
 
   let allLocs = [1 .. (fst . snd $ bounds distances)]
-      greedy = greedyNN distances allLocs
+      greedy  = greedyNN distances allLocs
 
   (path, _) <- Ordered.search
       dds
       depth
-      ((Seq.empty, 0), pathLength distances greedy, allLocs)
+      ((Seq.empty, 0), pathLength distances greedy, LocationSet.fromList allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
@@ -313,7 +315,7 @@ orderedSearch distances depth dds = do
       (toClosure (ToCFns
                   $(mkClosure [| toClosureSol |])
                   $(mkClosure [| toClosureInt |])
-                  $(mkClosure [| toClosureLocationList |])
+                  $(mkClosure [| toClosureLocationSet |])
                   $(mkClosure [| toClosureSearchNode |])))
 
   return path
@@ -322,11 +324,11 @@ unorderedSearch :: DistanceMatrix -> Int -> Par Path
 unorderedSearch distances depth = do
 
   let allLocs = [1 .. (fst . snd $ bounds distances)]
-      greedy = greedyNN distances allLocs
+      greedy  = greedyNN distances allLocs
 
   (path, _) <- Unordered.search
       depth
-      ((Seq.empty, 0), pathLength distances greedy, allLocs)
+      ((Seq.empty, 0), pathLength distances greedy, LocationSet.fromList allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
@@ -334,7 +336,7 @@ unorderedSearch distances depth = do
       (toClosure (ToCFns
                   $(mkClosure [| toClosureSol |])
                   $(mkClosure [| toClosureInt |])
-                  $(mkClosure [| toClosureLocationList |])
+                  $(mkClosure [| toClosureLocationSet |])
                   $(mkClosure [| toClosureSearchNode |])))
 
   return path
@@ -352,11 +354,11 @@ toClosureSol x = $(mkClosure [| toClosureSol_abs x |])
 toClosureSol_abs :: Solution -> Thunk Solution
 toClosureSol_abs x = Thunk x
 
-toClosureLocationList :: [Location] -> Closure [Location]
-toClosureLocationList x = $(mkClosure [| toClosureLocationList_abs x |])
+toClosureLocationSet :: LocationSet -> Closure LocationSet
+toClosureLocationSet x = $(mkClosure [| toClosureLocationSet_abs x |])
 
-toClosureLocationList_abs :: [Location] -> Thunk [Location]
-toClosureLocationList_abs x = Thunk x
+toClosureLocationSet_abs :: LocationSet -> Thunk LocationSet
+toClosureLocationSet_abs x = Thunk x
 
 toClosureSearchNode :: SearchNode -> Closure SearchNode
 toClosureSearchNode x = $(mkClosure [| toClosureSearchNode_abs x |])
@@ -364,10 +366,10 @@ toClosureSearchNode x = $(mkClosure [| toClosureSearchNode_abs x |])
 toClosureSearchNode_abs :: SearchNode -> Thunk SearchNode
 toClosureSearchNode_abs x = Thunk x
 
-instance ToClosure (BAndBFunctions (Path,Int) Int [Location]) where
+instance ToClosure (BAndBFunctions (Path,Int) Int LocationSet) where
   locToClosure = $(here)
 
-instance ToClosure (ToCFns (Path,Int) Int [Location]) where
+instance ToClosure (ToCFns (Path,Int) Int LocationSet) where
   locToClosure = $(here)
 
 $(return []) -- Bring all types into scope for TH.
@@ -378,8 +380,8 @@ declareStatic = mconcat
     HdpH.declareStatic
 
   -- Types
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Int [Location]))
-  , declare (staticToClosure :: StaticToClosure (ToCFns Solution Int [Location]))
+  , declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Int LocationSet))
+  , declare (staticToClosure :: StaticToClosure (ToCFns Solution Int LocationSet))
 
   -- Functions
   , declare $(static 'orderedGenerator)
@@ -391,8 +393,8 @@ declareStatic = mconcat
   , declare $(static 'toClosureInt_abs)
   , declare $(static 'toClosureSol)
   , declare $(static 'toClosureSol_abs)
-  , declare $(static 'toClosureLocationList)
-  , declare $(static 'toClosureLocationList_abs)
+  , declare $(static 'toClosureLocationSet)
+  , declare $(static 'toClosureLocationSet_abs)
   , declare $(static 'toClosureSearchNode)
   , declare $(static 'toClosureSearchNode_abs)
   ]
