@@ -22,9 +22,12 @@ import qualified Control.Parallel.HdpH    as HdpH (declareStatic)
 
 import Data.Array.Unboxed
 import Data.Array.ST
-import Data.Foldable (foldlM)
+import Data.Foldable (foldlM, toList)
 import Data.Maybe (fromMaybe)
 import Data.IORef
+
+import Data.Sequence ((|>), ViewR(..), ViewL(..))
+import qualified Data.Sequence as Seq
 
 import System.Clock
 
@@ -132,49 +135,59 @@ buildDistanceMatrix nodes = array ((minId, minId), (maxId, maxId)) distances
 -- Skeleton Functions
 -- SearchNode :: Sol, Bound, Space
 type Location = Int
-type Path = [Location]
+
+type Path     = Seq.Seq Location
+
+-- Unsafe lookups for first and last Data.Sequence elements (for performance)
+unsafeFirst :: Path -> Location
+unsafeFirst path = case Seq.viewl path of
+  EmptyL  -> error "No head elem of path"
+  a :< as -> a
+
+unsafeLast :: Path -> Location
+unsafeLast path = case Seq.viewr path of
+  EmptyR  -> error "No last elem of path"
+  as :> a -> a
+
 type Solution = (Path, Int)
 
 type SearchNode = (Solution, Int, [Location])
 
 -- Only update Bnd when we reach the root again
 orderedGenerator :: SearchNode -> Par [Par SearchNode]
-orderedGenerator (([], 0), lbnd, rem) =
-  return $ map constructTopLevel rem
+orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
+  Seq.EmptyL -> return $ map constructTopLevel rem
+  _          -> do
+    distances  <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
+    return $ map (constructNode distances) rem
+
   where
-    constructTopLevel l = return (([l],0), lbnd, filter (\o -> o /= l) rem)
+    constructNode :: DistanceMatrix -> Location -> Par SearchNode
+    constructNode dist loc = do
+      let newPath  = (path |> loc)
+          newDist  = pathL + dist ! (unsafeLast path, loc)
+          newRem   = filter (\o -> o /= loc) rem
 
-orderedGenerator ((path, pathL), lbnd, rem) = do
-  distances  <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
+      case null newRem of
+        True ->
+          let newPath'  = (newPath |> unsafeFirst path)
+              newDist'  = newDist + dist ! (unsafeLast newPath, unsafeFirst path)
+          in return ((newPath',newDist'), newDist', [])
+        False -> return ((newPath,newDist), lbnd, newRem)
 
-  return $ map (constructNode distances) rem
-
-  -- TODO: For efficiency we might want to store the paths backwards (or use vector)
-  where
-        constructNode :: DistanceMatrix -> Location -> Par SearchNode
-        constructNode dist loc = do
-          let newPath  = (path ++ [loc])
-              newDist  = pathL + dist ! (last path, loc)
-              newRem   = filter (\o -> o /= loc) rem
-
-          case null newRem of
-            True ->
-              let newPath'  = (newPath ++ [head path])
-                  newDist'  = newDist + dist ! (last newPath, head path)
-              in return ((newPath',newDist'), newDist', [])
-            False -> return ((newPath,newDist), lbnd, newRem)
+    constructTopLevel l = return ((Seq.singleton l, 0), lbnd, filter (\o -> o /= l) rem)
 
 pruningPredicate :: SearchNode -> Int -> Par PruneType
 pruningPredicate ((path, pathL), _, rem) gbnd = do
   dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
-  let lb = weightMST dists (head path) (last path:rem)
+  let lb = weightMST dists (unsafeFirst path) (unsafeLast path : rem)
   -- Debugging if required
   -- io . putStrLn $ "(Pruning) Path: " ++ show path ++ ", len: " ++ show pathL
   -- io . putStrLn $ "(Pruning) Rem: "  ++ show rem
   -- io . putStrLn $ "(Pruning) gbnd rem: " ++ show gbnd
-  -- io . putStrLn $ "(Pruning) lb rem: "   ++ show lb'
-  -- io . putStrLn $ "(Pruning) lb full: "  ++ show (pathL + lb')
-  -- io . putStrLn $ "(Pruning) shouldPrune: "  ++ show (pathL + lb' > gbnd)
+  -- io . putStrLn $ "(Pruning) lb rem: "   ++ show lb
+  -- io . putStrLn $ "(Pruning) lb full: "  ++ show (pathL + lb)
+  -- io . putStrLn $ "(Pruning) shouldPrune: "  ++ show (pathL + lb > gbnd)
 
   if pathL + lb > gbnd
     then return Prune
@@ -209,17 +222,17 @@ strengthen (_, lbnd, _) gbnd = lbnd < gbnd
 -- TSP Utility functions
 
 pathLength :: DistanceMatrix -> Path -> Int
-pathLength dists locs = sum . map (\(n,m) -> dists ! (n,m)) $ zip locs (tail locs)
+pathLength dists locs = let locs' = toList locs in sum . map (\(n,m) -> dists ! (n,m)) $ zip locs' (tail locs')
 
 greedyNN :: DistanceMatrix -> [Location] -> Path
-greedyNN dists (l:ls) = go l ls []
+greedyNN dists (l:ls) = go l ls Seq.empty
   where
     -- We add the loopback to root here
-    go cur [] p = p ++ [cur] ++ [head p]
+    go cur [] p = p |> cur |> unsafeFirst p
 
     go cur ls p = let m = findMinEdge cur ls
                       ls' = filter (\n -> n /= m) ls
-                      p' = p ++ [cur]
+                      p' = p |> cur
                   in go m ls' p'
 
     findMinEdge n = fst . foldl (\acc@(_, s) m -> if dists ! (n, m) < s
@@ -292,7 +305,7 @@ orderedSearch distances depth dds = do
   (path, _) <- Ordered.search
       dds
       depth
-      (([], 0), pathLength distances greedy, allLocs)
+      ((Seq.empty, 0), pathLength distances greedy, allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
@@ -313,7 +326,7 @@ unorderedSearch distances depth = do
 
   (path, _) <- Unordered.search
       depth
-      (([], 0), pathLength distances greedy, allLocs)
+      ((Seq.empty, 0), pathLength distances greedy, allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
