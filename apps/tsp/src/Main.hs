@@ -182,7 +182,7 @@ orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
 pruningPredicate :: SearchNode -> Int -> Par PruneType
 pruningPredicate ((path, pathL), _, rem) gbnd = do
   dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
-  let lb = weightMST dists (unsafeFirst path) (LocationSet.insert (unsafeLast path) rem)
+  let lb = weightMST dists (unsafeLast path) (LocationSet.insert (unsafeFirst path) rem)
   -- Debugging if required
   -- io . putStrLn $ "(Pruning) Path: " ++ show path ++ ", len: " ++ show pathL
   -- io . putStrLn $ "(Pruning) Rem: "  ++ show rem
@@ -307,7 +307,7 @@ orderedSearch distances depth dds = do
   (path, _) <- Ordered.search
       dds
       depth
-      ((Seq.empty, 0), pathLength distances greedy, LocationSet.fromList allLocs)
+      ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
@@ -328,7 +328,7 @@ unorderedSearch distances depth = do
 
   (path, _) <- Unordered.search
       depth
-      ((Seq.empty, 0), pathLength distances greedy, LocationSet.fromList allLocs)
+      ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
                   $(mkClosure [| pruningPredicate |])
