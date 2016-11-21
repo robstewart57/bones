@@ -58,7 +58,7 @@ search :: Bool                            -- ^ Should discrepancy search be used
        -> Bool                            -- ^ Enable PruneLevel Optimisation
        -> Int                             -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
        -> BBNode a b s                    -- ^ Initial root search node
-       -> Closure (BAndBFunctions a b s)  -- ^ Higher order B&B functions
+       -> Closure (BAndBFunctions g a b s)  -- ^ Higher order B&B functions
        -> Closure (ToCFns a b s)          -- ^ Explicit toClosure instances
        -> Par a                           -- ^ The resulting solution after the search completes
 search pl diversify spawnDepth root fs toC = do
@@ -136,7 +136,7 @@ createTasksToDepth :: Bool
                    -- ^ Depth to spawn to. Depth = 0 implies top level only.
                    -> BBNode a b s
                    -- ^ Starting node to branch from
-                   -> Closure (BAndBFunctions a b s)
+                   -> Closure (BAndBFunctions g a b s)
                    -- ^ Higher Order B&B functions
                    -> Closure (ToCFns a b s)
                    -- ^ Explicit toClosure instances
@@ -146,10 +146,12 @@ createTasksToDepth pl master depth root fsC toC' =
   where
     go d i parentP n fns toC
          | d == 0 = do
-             ns <- orderedGenerator fns n >>= sequence
+             space <- io getGlobalSearchSpace
+             ns <- orderedGenerator fns space n >>= sequence
              zipWithM (\p n' -> createTask toC (parentP + p) n') (0 : inc i) ns
          | otherwise = do
-             ns <- orderedGenerator fns n
+             space <- io getGlobalSearchSpace
+             ns <- orderedGenerator fns space n
              let ts = zip ((0 :: Int) : inc i) ns
 
              xs <- forM ts $ \(p, n') -> do
@@ -197,7 +199,7 @@ safeBranchAndBoundSkeletonChildTask ::
     , Node
     , Bool
     , Closure (BBNode a b s)
-    , Closure (BAndBFunctions a b s)
+    , Closure (BAndBFunctions g a b s)
     , Closure (ToCFns a b s))
     -- TODO: Do I really need closures here? I guess to write into the IVar
     -> Thunk (Par (Closure ()))
@@ -219,17 +221,18 @@ safeBranchAndBoundSkeletonChild ::
        Bool
     -> Node
     -> BBNode a b s
-    -> Closure (BAndBFunctions a b s)
-    -> BAndBFunctions a b s
+    -> Closure (BAndBFunctions g a b s)
+    -> BAndBFunctions g a b s
     -> ToCFns a b s
     -> Par (Closure ())
 safeBranchAndBoundSkeletonChild pl parent n fsC fsl toCL = do
-    gbnd <- io $ readFromRegistry boundKey
+    gbnd  <- io $ readFromRegistry boundKey
+    space <- io getGlobalSearchSpace
 
     -- Check if we can prune first to avoid any extra work
-    lbnd <- pruningHeuristic fsl n
+    lbnd <- pruningHeuristic fsl space n
     case compareB fsl lbnd gbnd of
-      GT -> expandSequential pl parent n fsC fsl toCL >> return toClosureUnit
+      GT -> expandSequential pl parent n space fsC fsl toCL >> return toClosureUnit
       _  -> return toClosureUnit
 
 $(return []) -- TH Workaround

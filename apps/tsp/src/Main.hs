@@ -168,12 +168,10 @@ cmpBnd x y
   | x >  y = LT
 
 -- Only update Bnd when we reach the root again
-orderedGenerator :: SearchNode -> Par [Par SearchNode]
-orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
+orderedGenerator :: DistanceMatrix -> SearchNode -> Par [Par SearchNode]
+orderedGenerator distances ((path, pathL), lbnd, rem) = case Seq.viewl path of
   Seq.EmptyL -> return $ map constructTopLevel (LocationSet.elems rem)
-  _          -> do
-    distances  <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
-    return $ map (constructNode distances) (LocationSet.elems rem)
+  _          -> return $ map (constructNode distances) (LocationSet.elems rem)
 
   where
     constructNode :: DistanceMatrix -> Location -> Par SearchNode
@@ -191,9 +189,8 @@ orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
 
     constructTopLevel l = return ((Seq.singleton l, 0), lbnd, LocationSet.delete l rem)
 
-pruningHeuristic :: SearchNode -> Par Int
-pruningHeuristic ((!path, !pathL), b, rem) = do
-  dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
+pruningHeuristic :: DistanceMatrix -> SearchNode -> Par Int
+pruningHeuristic dists ((!path, !pathL), b, rem) =
   return $ pathL + weightMST dists (unsafeLast path) (LocationSet.insert (unsafeFirst path) rem)
 
 
@@ -318,7 +315,7 @@ updateWeightMapPrim dists weight !v0 !v = do
     {-# INLINE withArray #-}
 {-# INLINE updateWeightMapPrim #-}
 
-funcDict :: BAndBFunctions (Path,Int) Int LocationSet
+funcDict :: BAndBFunctions DistanceMatrix (Path,Int) Int LocationSet
 funcDict = BAndBFunctions orderedGenerator pruningHeuristic cmpBnd
 
 closureDict :: ToCFns (Path,Int) Int LocationSet
