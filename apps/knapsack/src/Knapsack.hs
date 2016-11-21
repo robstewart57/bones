@@ -216,20 +216,10 @@ declareStatic = mconcat
     declare $(static 'funcDict)
   , declare $(static 'closureDict)
 
-  -- B&B Functions
-  , declare $(static 'orderedGenerator)
-  , declare $(static 'pruningHeuristic)
-  , declare $(static 'strengthen)
-
   -- Explicit toClosure
-  , declare $(static 'toClosureInteger)
   , declare $(static 'toClosureInteger_abs)
-  , declare $(static 'toClosureInt)
   , declare $(static 'toClosureInt_abs)
-  , declare $(static 'toClosureItemList)
   , declare $(static 'toClosureItemList_abs)
-  , declare $(static 'toClosureSolution)
   , declare $(static 'toClosureSolution_abs)
-  , declare $(static 'toClosureKPNode)
   , declare $(static 'toClosureKPNode_abs)
   ]

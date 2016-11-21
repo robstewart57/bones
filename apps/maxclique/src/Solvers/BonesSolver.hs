@@ -239,45 +239,17 @@ $(return [])
 declareStatic :: StaticDecl
 declareStatic = mconcat
   [
-  --   declare (staticToClosure :: StaticToClosure Int)
-  -- , declare (staticToClosure :: StaticToClosure [Vertex])
-  -- , declare (staticToClosure :: StaticToClosure VertexSet)
-  -- , declare (staticToClosure :: StaticToClosure (Vertex, Int))
-  -- , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int VertexSet))
-  -- , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int  VertexSet))
-  -- , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)))
-  -- , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)))
-
- -- Function Dicts
+  -- Function Dicts
     declare $(static 'funcDictIS)
   , declare $(static 'funcDictBS)
   , declare $(static 'closureDictIS)
   , declare $(static 'closureDictBS)
 
-  -- B&B Functions
-  , declare $(static 'orderedGeneratorBS)
-  , declare $(static 'pruningHeuristicBS)
-
-  , declare $(static 'orderedGeneratorIS)
-  , declare $(static 'pruningHeuristicIS)
-  , declare $(static 'cmpBnd)
-
   -- Explicit toClosure
-  , declare $(static 'toClosureInt)
   , declare $(static 'toClosureInt_abs)
-
-  , declare $(static 'toClosureSol)
   , declare $(static 'toClosureSol_abs)
-
-  , declare $(static 'toClosureVertexSet)
   , declare $(static 'toClosureVertexSet_abs)
-
-  , declare $(static 'toClosureMCNodeBS)
   , declare $(static 'toClosureMCNodeBS_abs)
-
-  , declare $(static 'toClosureMCNodeIS)
   , declare $(static 'toClosureMCNodeIS_abs)
-
   , declare $(static 'toClosureIBitSetArray_abs)
-  , declare $(static 'toClosureIBitSetArray)
   ]

@@ -400,19 +400,10 @@ declareStatic = mconcat
   , declare $(static 'funcDict)
   , declare $(static 'closureDict)
 
-  -- Functions
-  , declare $(static 'orderedGenerator)
-  , declare $(static 'pruningHeuristic)
-  , declare $(static 'cmpBnd)
-
   -- Explicit ToClosures
-  , declare $(static 'toClosureInt)
   , declare $(static 'toClosureInt_abs)
-  , declare $(static 'toClosureSol)
   , declare $(static 'toClosureSol_abs)
-  , declare $(static 'toClosureLocationSet)
   , declare $(static 'toClosureLocationSet_abs)
-  , declare $(static 'toClosureSearchNode)
   , declare $(static 'toClosureSearchNode_abs)
   ]
 
