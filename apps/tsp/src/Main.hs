@@ -158,6 +158,12 @@ type LocationSet = IntSet
 type Solution   = (Path, Int)
 type SearchNode = (Solution, Int, LocationSet)
 
+cmpBnd :: Int -> Int -> Ordering
+cmpBnd x y
+  | x == y = EQ
+  | x <  y = GT
+  | x >  y = LT
+
 -- Only update Bnd when we reach the root again
 orderedGenerator :: SearchNode -> Par [Par SearchNode]
 orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
@@ -182,21 +188,11 @@ orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
 
     constructTopLevel l = return ((Seq.singleton l, 0), lbnd, LocationSet.delete l rem)
 
-pruningPredicate :: SearchNode -> Int -> Par PruneType
-pruningPredicate ((!path, !pathL), _, rem) !gbnd = do
+pruningHeuristic :: SearchNode -> Par Int
+pruningHeuristic ((!path, !pathL), b, rem) = do
   dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
-  let lb = weightMST dists (unsafeLast path) (LocationSet.insert (unsafeFirst path) rem)
-  -- Debugging if required
-  -- io . putStrLn $ "(Pruning) Path: " ++ show path ++ ", len: " ++ show pathL
-  -- io . putStrLn $ "(Pruning) Rem: "  ++ show rem
-  -- io . putStrLn $ "(Pruning) gbnd rem: " ++ show gbnd
-  -- io . putStrLn $ "(Pruning) lb rem: "   ++ show lb
-  -- io . putStrLn $ "(Pruning) lb full: "  ++ show (pathL + lb)
-  -- io . putStrLn $ "(Pruning) shouldPrune: "  ++ show (pathL + lb > gbnd)
+  return $ pathL + weightMST dists (unsafeLast path) (LocationSet.insert (unsafeFirst path) rem)
 
-  if pathL + lb > gbnd
-    then return Prune
-    else return NoPrune
 
 lbSimple :: [Location] -> [Location] -> DistanceMatrix -> Int
 lbSimple path rem dists
@@ -340,8 +336,8 @@ orderedSearch distances !depth !dds = do
       ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
-                  $(mkClosure [| pruningPredicate |])
-                  $(mkClosure [| strengthen |])))
+                  $(mkClosure [| pruningHeuristic |])
+                  $(mkClosure [| cmpBnd |])))
       (toClosure (ToCFns
                   $(mkClosure [| toClosureSol |])
                   $(mkClosure [| toClosureInt |])
@@ -361,8 +357,8 @@ unorderedSearch distances !depth = do
       ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
       (toClosure (BAndBFunctions
                   $(mkClosure [| orderedGenerator |])
-                  $(mkClosure [| pruningPredicate |])
-                  $(mkClosure [| strengthen |])))
+                  $(mkClosure [| pruningHeuristic |])
+                  $(mkClosure [| cmpBnd |])))
       (toClosure (ToCFns
                   $(mkClosure [| toClosureSol |])
                   $(mkClosure [| toClosureInt |])
@@ -415,8 +411,8 @@ declareStatic = mconcat
 
   -- Functions
   , declare $(static 'orderedGenerator)
-  , declare $(static 'pruningPredicate)
-  , declare $(static 'strengthen)
+  , declare $(static 'pruningHeuristic)
+  , declare $(static 'cmpBnd)
 
   -- Explicit ToClosures
   , declare $(static 'toClosureInt)
