@@ -22,14 +22,14 @@ bound (_, b, _) = b
 solution :: BBNode a b s -> a
 solution (s, _ , _ )= s
 
-subspace :: BBNode a b s -> s
-subspace (_, _, s) = s
+candidates :: BBNode a b s -> s
+candidates (_, _, s) = s
 
 data BAndBFunctions a b s =
   BAndBFunctions
     { orderedGenerator :: Closure (BBNode a b s -> Par [Par (BBNode a b s)])
-    , pruningPredicate :: Closure (BBNode a b s -> b -> Par PruneType)
-    , strengthen       :: Closure (BBNode a b s -> b -> Bool)
+    , pruningHeuristic :: Closure (BBNode a b s -> b -> Par PruneType)
+    , compareB         :: Closure (b -> b -> Ordering)
     } deriving (Generic)
 
 data ToCFns a b s =
@@ -43,8 +43,8 @@ data ToCFns a b s =
 data BAndBFunctionsL a b s =
   BAndBFunctionsL
     { orderedGeneratorL :: BBNode a b s -> Par [Par (BBNode a b s)]
-    , pruningPredicateL :: BBNode a b s -> b -> Par PruneType
-    , strengthenL       :: BBNode a b s -> b -> Bool
+    , pruningHeuristicL :: BBNode a b s -> b -> Par PruneType
+    , compareBL         :: b -> b -> Ordering
     } deriving (Generic)
 
 data ToCFnsL a b s =
