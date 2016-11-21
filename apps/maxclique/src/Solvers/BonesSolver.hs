@@ -75,6 +75,9 @@ instance ToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)) where
 
 type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
 
+cmpBnd :: Int -> Int -> Ordering
+cmpBnd = compare
+
 -- BitSet
 orderedGeneratorBS :: MCNodeBS -> Par [Par MCNodeBS]
 orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
@@ -106,12 +109,8 @@ orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
       remain       <- ArrayVertexSet.makeImmutable newVs
       return (pc, remain)
 
-pruningPredicateBS :: MCNodeBS -> Int -> Par PruneType
-pruningPredicateBS ((sol, cols), lbnd, _) gbnd = do
-  if lbnd + cols <= gbnd then return PruneLevel else return NoPrune
-
-strengthenBS :: MCNodeBS -> Int -> Bool
-strengthenBS (_, lbnd, _) gbnd = lbnd > gbnd
+pruningHeuristicBS :: MCNodeBS -> Par Int
+pruningHeuristicBS ((sol, cols), lbnd, _) = return $ lbnd + cols
 
 -- IntSet
 type MCNodeIS = (([Vertex], Int), Int, VertexSet)
@@ -129,12 +128,9 @@ orderedGeneratorIS ((sol, cols), bnd, vs) = do
           let space' = VertexSet.intersection space (adjacentG graph v)
           return ((v : sol, c - 1), bnd + 1, space')
 
-pruningPredicateIS :: MCNodeIS -> Int -> Par PruneType
-pruningPredicateIS ((sol, cols), lbnd, _) gbnd =
-  if lbnd + cols <= gbnd then return PruneLevel else return NoPrune
+pruningHeuristicIS :: MCNodeIS -> Par Int
+pruningHeuristicIS ((sol, cols), lbnd, _) = return $ lbnd + cols
 
-strengthenIS :: MCNodeIS -> Int -> Bool
-strengthenIS (_, lbnd, _) gbnd = lbnd > gbnd
 
 --------------------------------------------------------------------------------
 -- Calling functions
@@ -147,8 +143,8 @@ randomWSIntSet g depth = do
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
         (toClosure (BAndBFunctions
           $(mkClosure [| orderedGeneratorIS |])
-          $(mkClosure [| pruningPredicateIS |])
-          $(mkClosure [| strengthenIS |])))
+          $(mkClosure [| pruningHeuristicIS |])
+          $(mkClosure [| cmpBnd |])))
         (toClosure (ToCFns
           $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
@@ -166,8 +162,8 @@ randomWSBitArray nVertices depth = do
         (([], 0), 0, (nVertices, initSet))
         (toClosure (BAndBFunctions
           $(mkClosure [| orderedGeneratorBS |])
-          $(mkClosure [| pruningPredicateBS |])
-          $(mkClosure [| strengthenBS |])))
+          $(mkClosure [| pruningHeuristicBS |])
+          $(mkClosure [| cmpBnd |])))
         (toClosure (ToCFns
           $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
@@ -189,8 +185,8 @@ safeSkeletonIntSet g depth diversify = do
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
         (toClosure (BAndBFunctions
           $(mkClosure [| orderedGeneratorIS |])
-          $(mkClosure [| pruningPredicateIS |])
-          $(mkClosure [| strengthenIS |])))
+          $(mkClosure [| pruningHeuristicIS |])
+          $(mkClosure [| cmpBnd |])))
         (toClosure (ToCFns
           $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
@@ -209,8 +205,8 @@ safeSkeletonBitSetArray nVertices depth diversify = do
         (([], 0), 0, (nVertices, initSet))
         (toClosure (BAndBFunctions
           $(mkClosure [| orderedGeneratorBS |])
-          $(mkClosure [| pruningPredicateBS |])
-          $(mkClosure [| strengthenBS |])))
+          $(mkClosure [| pruningHeuristicBS |])
+          $(mkClosure [| cmpBnd |])))
         (toClosure (ToCFns
           $(mkClosure [| toClosureSol |])
           $(mkClosure [| toClosureInt |])
@@ -278,12 +274,11 @@ declareStatic = mconcat
 
   -- B&B Functions
   , declare $(static 'orderedGeneratorBS)
-  , declare $(static 'pruningPredicateBS)
-  , declare $(static 'strengthenBS)
+  , declare $(static 'pruningHeuristicBS)
 
   , declare $(static 'orderedGeneratorIS)
-  , declare $(static 'pruningPredicateIS)
-  , declare $(static 'strengthenIS)
+  , declare $(static 'pruningHeuristicIS)
+  , declare $(static 'cmpBnd)
 
   -- Explicit toClosure
   , declare $(static 'toClosureInt)
