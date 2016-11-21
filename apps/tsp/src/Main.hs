@@ -331,6 +331,7 @@ orderedSearch distances !depth !dds = do
       greedy  = greedyNN distances allLocs
 
   (path, _) <- Ordered.search
+      False
       dds
       depth
       ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
@@ -353,6 +354,7 @@ unorderedSearch distances !depth = do
       greedy  = greedyNN distances allLocs
 
   (path, _) <- Unordered.search
+      False
       depth
       ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
       (toClosure (BAndBFunctions

@@ -7,22 +7,22 @@ module Bones.Skeletons.BranchAndBound.HdpH.Sequential
 
 import Control.Parallel.HdpH
 
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import Data.IORef (atomicModifyIORef')
 
 import Bones.Skeletons.BranchAndBound.HdpH.Types
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 -- Assumes any global space state is already initialised
-search :: BBNode a b s -> BAndBFunctionsL a b s -> Par a
-search root@(ssol, sbnd, _) fns = do
+search :: Bool -> BBNode a b s -> BAndBFunctionsL a b s -> Par a
+search pl root@(ssol, sbnd, _) fns = do
   io $ addToRegistry solutionKey (ssol, sbnd)
   io $ addToRegistry boundKey sbnd
-  expand root fns
+  expand pl root fns
   io $ fst <$> readFromRegistry solutionKey
 
-expand :: BBNode a b s -> BAndBFunctionsL a b s -> Par ()
-expand root fns = go1 root
+expand :: Bool -> BBNode a b s -> BAndBFunctionsL a b s -> Par ()
+expand pl root fns = go1 root
   where
     go1 n = orderedGeneratorL fns n >>= go
 
@@ -40,7 +40,7 @@ expand root fns = go1 root
         GT -> do
          when (compareBL fns (bound n') gbnd == GT) (updateLocalBoundAndSol n' fns)
          go1 n' >> go ns
-        _  -> go ns
+        _  -> unless pl $ go ns
 
 -- Technically we don't need atomic modify when we are sequential but this
 -- keeps us closer to the parallel version.

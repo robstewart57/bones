@@ -24,7 +24,7 @@ import Control.Parallel.HdpH (Par, Closure, unClosure, io, Thunk(..), mkClosure,
                               spawnAt, Node, get, allNodes, pushTo, toClosure,
                               StaticDecl, declare, static)
 
-import Control.Monad (when)
+import Control.Monad (when, unless)
 
 import Data.IORef            (atomicModifyIORef')
 
@@ -102,7 +102,9 @@ updateParentBoundT ((s, bnd), fns) = Thunk $ do
   return toClosureUnit
 
 expandSequential ::
-       Node
+       Bool
+       -- ^ PruneLevel Optimisation Enabled?
+    -> Node
        -- ^ Master node (for transferring new bounds)
     -> BBNode a b s
        -- ^ Root node for this (sub-tree) search
@@ -115,7 +117,7 @@ expandSequential ::
     -> Par ()
        -- ^ Side-effect only function
 -- Be careful of n aliasing
-expandSequential parent n' fs fsl toCL = expand n'
+expandSequential pl parent n' fs fsl toCL = expand n'
     where
       expand n = orderedGeneratorL fsl n >>= go
 
@@ -138,7 +140,7 @@ expandSequential parent n' fs fsl toCL = expand n'
                 notifyParentOfNewBound parent (cSol, cBnd) fs
 
             expand node >> go ns
-          _ -> go ns
+          _ -> unless pl $ go ns
 
 
 $(return []) -- TH Workaround

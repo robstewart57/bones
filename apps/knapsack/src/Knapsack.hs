@@ -47,6 +47,7 @@ cmpBnd = compare
 skeletonOrdered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
 skeletonOrdered items capacity depth diversify =
   Ordered.search
+    True
     diversify
     depth
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
@@ -63,6 +64,7 @@ skeletonOrdered items capacity depth diversify =
 skeletonUnordered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
 skeletonUnordered items capacity depth diversify =
   Unordered.search
+    True
     depth
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
     (toClosure (BAndBFunctions
@@ -78,6 +80,7 @@ skeletonUnordered items capacity depth diversify =
 skeletonSequential :: [(Int, Int, Int)] -> Int -> Par Solution
 skeletonSequential items capacity =
   Sequential.search
+    True
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
     (BAndBFunctionsL orderedGenerator pruningHeuristic cmpBnd)
 

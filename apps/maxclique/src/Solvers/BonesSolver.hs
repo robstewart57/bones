@@ -139,6 +139,7 @@ pruningHeuristicIS ((sol, cols), lbnd, _) = return $ lbnd + cols
 randomWSIntSet :: Graph -> Int -> Par Clique
 randomWSIntSet g depth = do
   (vs, _) <- Unordered.search
+        True
         depth
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
         (toClosure (BAndBFunctions
@@ -158,6 +159,7 @@ randomWSBitArray nVertices depth = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
   (vs, _) <- Unordered.search
+        True
         depth
         (([], 0), 0, (nVertices, initSet))
         (toClosure (BAndBFunctions
@@ -180,6 +182,7 @@ randomWSBitArray nVertices depth = do
 safeSkeletonIntSet :: Graph -> Int -> Bool -> Par Clique
 safeSkeletonIntSet g depth diversify = do
   (vs, _) <- Ordered.search
+        True
         diversify
         depth
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
@@ -200,6 +203,7 @@ safeSkeletonBitSetArray nVertices depth diversify = do
   initSet <- io $ setAll >>= ArrayVertexSet.makeImmutable
 
   (vs, _) <- Ordered.search
+        True
         diversify
         depth
         (([], 0), 0, (nVertices, initSet))

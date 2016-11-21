@@ -55,12 +55,13 @@ data Task a b s = Task
 -- (2) Adding more workers does not slow down the computation
 -- (3) Results should have low variance allowing them to be reproducible
 search :: Bool                            -- ^ Should discrepancy search be used? Else spawn tasks linearly, left to right.
+       -> Bool                            -- ^ Enable PruneLevel Optimisation
        -> Int                             -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
        -> BBNode a b s                    -- ^ Initial root search node
        -> Closure (BAndBFunctions a b s)  -- ^ Higher order B&B functions
        -> Closure (ToCFns a b s)          -- ^ Explicit toClosure instances
        -> Par a                           -- ^ The resulting solution after the search completes
-search diversify spawnDepth root fs toC = do
+search pl diversify spawnDepth root fs toC = do
   master <- myNode
   nodes  <- allNodes
 
@@ -70,7 +71,7 @@ search diversify spawnDepth root fs toC = do
 
   -- Construct task parameters and priorities
   -- Hard-coded to spawn only leaf tasks (for now)
-  taskList  <- createTasksToDepth master spawnDepth root fs toC
+  taskList  <- createTasksToDepth pl master spawnDepth root fs toC
 
   -- Register tasks with HdpH
   spawnTasks taskList
@@ -101,7 +102,7 @@ search diversify spawnDepth root fs toC = do
          then spinGet (resultM task)
          else do
           put (isStarted task) toClosureUnit
-          safeBranchAndBoundSkeletonChild master (node task) fsC fsl toCl
+          safeBranchAndBoundSkeletonChild pl master (node task) fsC fsl toCl
           put (resultM task) toClosureUnit
           return toClosureUnit
 
@@ -127,7 +128,9 @@ runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 -- | Construct tasks to given depth in the tree. Assigned priorities in a
 --   discrepancy search manner (which can later be ignored if required). This
 --   function is essentially where the key scheduling decisions happen.
-createTasksToDepth :: Node
+createTasksToDepth :: Bool
+                   -- ^ Enable pruneLevel optimisation
+                   -> Node
                    -- ^ The master node which stores the global bound
                    -> Int
                    -- ^ Depth to spawn to. Depth = 0 implies top level only.
@@ -138,7 +141,7 @@ createTasksToDepth :: Node
                    -> Closure (ToCFns a b s)
                    -- ^ Explicit toClosure instances
                    -> Par [Task a b s]
-createTasksToDepth master depth root fsC toC' =
+createTasksToDepth pl master depth root fsC toC' =
   go depth 1 0 root (extractBandBFunctions fsC) (extractToCFunctions toC')
   where
     go d i parentP n fns toC
@@ -165,6 +168,7 @@ createTasksToDepth master depth root fsC toC' =
        let n' = toCnodeL toC $ n
        let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
                                                                       , master
+                                                                      , pl
                                                                       , n'
                                                                       , fsC
                                                                       , toC'
@@ -191,12 +195,13 @@ spinGet v = do
 safeBranchAndBoundSkeletonChildTask ::
     ( GIVar (Closure ())
     , Node
+    , Bool
     , Closure (BBNode a b s)
     , Closure (BAndBFunctions a b s)
     , Closure (ToCFns a b s))
     -- TODO: Do I really need closures here? I guess to write into the IVar
     -> Thunk (Par (Closure ()))
-safeBranchAndBoundSkeletonChildTask (taken, parent, n, fsC, toC) =
+safeBranchAndBoundSkeletonChildTask (taken, parent, pl, n, fsC, toC) =
   Thunk $ do
     -- Notify the parent that we are starting this task. TryRPut returns true if
     -- the IVar was free and write was successful, else false
@@ -206,24 +211,25 @@ safeBranchAndBoundSkeletonChildTask (taken, parent, n, fsC, toC) =
         let fsL      = extractBandBFunctions fsC
             toCl     = extractToCFunctions toC
             n'       = unClosure n
-        in safeBranchAndBoundSkeletonChild parent n' fsC fsL toCl
+        in safeBranchAndBoundSkeletonChild pl parent n' fsC fsL toCl
       else
         return toClosureUnit
 
 safeBranchAndBoundSkeletonChild ::
-       Node
+       Bool
+    -> Node
     -> BBNode a b s
     -> Closure (BAndBFunctions a b s)
     -> BAndBFunctionsL a b s
     -> ToCFnsL a b s
     -> Par (Closure ())
-safeBranchAndBoundSkeletonChild parent n fsC fsl toCL = do
+safeBranchAndBoundSkeletonChild pl parent n fsC fsl toCL = do
     gbnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
     lbnd <- pruningHeuristicL fsl n
     case compareBL fsl lbnd gbnd of
-      GT -> expandSequential parent n fsC fsl toCL >> return toClosureUnit
+      GT -> expandSequential pl parent n fsC fsl toCL >> return toClosureUnit
       _  -> return toClosureUnit
 
 $(return []) -- TH Workaround
