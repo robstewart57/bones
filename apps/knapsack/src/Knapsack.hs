@@ -41,6 +41,9 @@ type Item = Int
 instance Serialize Solution where
 instance NFData Solution where
 
+cmpBnd :: Int -> Int -> Ordering
+cmpBnd = compare
+
 skeletonOrdered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
 skeletonOrdered items capacity depth diversify =
   Ordered.search
@@ -49,8 +52,8 @@ skeletonOrdered items capacity depth diversify =
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
     (toClosure (BAndBFunctions
       $(mkClosure [| orderedGenerator |])
-      $(mkClosure [| pruningPredicate|])
-      $(mkClosure [| strengthen |])))
+      $(mkClosure [| pruningHeuristic |])
+      $(mkClosure [| cmpBnd |])))
     (toClosure (ToCFns
       $(mkClosure [| toClosureSolution |])
       $(mkClosure [| toClosureInt |])
@@ -64,8 +67,8 @@ skeletonUnordered items capacity depth diversify =
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
     (toClosure (BAndBFunctions
       $(mkClosure [| orderedGenerator |])
-      $(mkClosure [| pruningPredicate|])
-      $(mkClosure [| strengthen |])))
+      $(mkClosure [| pruningHeuristic |])
+      $(mkClosure [| cmpBnd |])))
     (toClosure (ToCFns
       $(mkClosure [| toClosureSolution |])
       $(mkClosure [| toClosureInt |])
@@ -76,8 +79,7 @@ skeletonSequential :: [(Int, Int, Int)] -> Int -> Par Solution
 skeletonSequential items capacity =
   Sequential.search
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
-    (BAndBFunctionsL orderedGenerator pruningPredicate strengthen)
-
+    (BAndBFunctionsL orderedGenerator pruningHeuristic cmpBnd)
 
 --------------------------------------------------------------------------------
 -- Skeleton Functions
@@ -150,16 +152,13 @@ orderedGenerator ((Solution mix cap is solP solW), bnd, remaining) = do
                               solP + (profits ! i),
                               delete i remaining)) items
 
-pruningPredicate :: KPNode -> Int -> Par PruneType
-pruningPredicate ((Solution mix cap (i:is) solP solW), _, _) bnd = do
+-- May prune level
+pruningHeuristic :: KPNode -> Par Int
+pruningHeuristic ((Solution mix cap (i:is) solP solW), _, _) = do
   (profits, weights) <- io getGlobalSearchSpace
   -- Profits/weights already in solution for i so don't add them again does this work for i = 0?
 
-  let ub' = ub profits weights solP solW (i + 1)
-  if fromIntegral bnd >= ub' then
-    return PruneLevel
-  else
-    return NoPrune
+  return $ round $ ub profits weights solP solW (i + 1)
 
   where
     -- TODO: Scope capturing function
@@ -233,7 +232,7 @@ declareStatic = mconcat
 
   -- B&B Functions
   , declare $(static 'orderedGenerator)
-  , declare $(static 'pruningPredicate)
+  , declare $(static 'pruningHeuristic)
   , declare $(static 'strengthen)
 
   -- Explicit toClosure
