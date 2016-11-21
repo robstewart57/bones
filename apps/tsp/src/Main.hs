@@ -35,6 +35,9 @@ import qualified Data.Sequence as Seq
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as LocationSet
 
+import Data.Serialize (Serialize)
+import Control.DeepSeq (NFData)
+
 import System.Clock
 
 import Options.Applicative
@@ -315,6 +318,12 @@ updateWeightMapPrim dists weight !v0 !v = do
     {-# INLINE withArray #-}
 {-# INLINE updateWeightMapPrim #-}
 
+funcDict :: BAndBFunctions (Path,Int) Int LocationSet
+funcDict = BAndBFunctions orderedGenerator pruningHeuristic cmpBnd
+
+closureDict :: ToCFns (Path,Int) Int LocationSet
+closureDict = ToCFns toClosureSol toClosureInt toClosureLocationSet toClosureSearchNode
+
 -- Test Instances
 testInstance1 :: DistanceMatrix
 testInstance1 = array ((1,1),(4,4))
@@ -335,15 +344,8 @@ orderedSearch distances !depth !dds = do
       dds
       depth
       ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
-      (toClosure (BAndBFunctions
-                  $(mkClosure [| orderedGenerator |])
-                  $(mkClosure [| pruningHeuristic |])
-                  $(mkClosure [| cmpBnd |])))
-      (toClosure (ToCFns
-                  $(mkClosure [| toClosureSol |])
-                  $(mkClosure [| toClosureInt |])
-                  $(mkClosure [| toClosureLocationSet |])
-                  $(mkClosure [| toClosureSearchNode |])))
+      ($(mkClosure [| funcDict |]))
+      ($(mkClosure [| closureDict |]))
 
   return path
 
@@ -357,15 +359,8 @@ unorderedSearch distances !depth = do
       False
       depth
       ((Seq.singleton 1, 0), pathLength distances greedy, LocationSet.delete 1 $ LocationSet.fromList allLocs)
-      (toClosure (BAndBFunctions
-                  $(mkClosure [| orderedGenerator |])
-                  $(mkClosure [| pruningHeuristic |])
-                  $(mkClosure [| cmpBnd |])))
-      (toClosure (ToCFns
-                  $(mkClosure [| toClosureSol |])
-                  $(mkClosure [| toClosureInt |])
-                  $(mkClosure [| toClosureLocationSet |])
-                  $(mkClosure [| toClosureSearchNode |])))
+      ($(mkClosure [| funcDict |]))
+      ($(mkClosure [| closureDict |]))
 
   return path
 
@@ -394,12 +389,6 @@ toClosureSearchNode x = $(mkClosure [| toClosureSearchNode_abs x |])
 toClosureSearchNode_abs :: SearchNode -> Thunk SearchNode
 toClosureSearchNode_abs x = Thunk x
 
-instance ToClosure (BAndBFunctions (Path,Int) Int LocationSet) where
-  locToClosure = $(here)
-
-instance ToClosure (ToCFns (Path,Int) Int LocationSet) where
-  locToClosure = $(here)
-
 $(return []) -- Bring all types into scope for TH.
 
 declareStatic :: StaticDecl
@@ -407,9 +396,9 @@ declareStatic = mconcat
   [
     HdpH.declareStatic
 
-  -- Types
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Int LocationSet))
-  , declare (staticToClosure :: StaticToClosure (ToCFns Solution Int LocationSet))
+  -- Function Dictionaries
+  , declare $(static 'funcDict)
+  , declare $(static 'closureDict)
 
   -- Functions
   , declare $(static 'orderedGenerator)

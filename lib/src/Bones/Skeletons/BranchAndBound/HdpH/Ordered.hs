@@ -77,8 +77,8 @@ search pl diversify spawnDepth root fs toC = do
   spawnTasks taskList
 
   -- Handle all tasks in sequential order using the master thread
-  let fsl      = extractBandBFunctions fs
-      toCl     = extractToCFunctions toC
+  let fsl      = unClosure fs
+      toCl     = unClosure toC
   mapM_ (handleTask master fsl toCl fs) taskList
 
   -- Global solution is a tuple (solution, bound). We only return the solution
@@ -142,14 +142,14 @@ createTasksToDepth :: Bool
                    -- ^ Explicit toClosure instances
                    -> Par [Task a b s]
 createTasksToDepth pl master depth root fsC toC' =
-  go depth 1 0 root (extractBandBFunctions fsC) (extractToCFunctions toC')
+  go depth 1 0 root (unClosure fsC) (unClosure toC')
   where
     go d i parentP n fns toC
          | d == 0 = do
-             ns <- orderedGeneratorL fns n >>= sequence
+             ns <- orderedGenerator fns n >>= sequence
              zipWithM (\p n' -> createTask toC (parentP + p) n') (0 : inc i) ns
          | otherwise = do
-             ns <- orderedGeneratorL fns n
+             ns <- orderedGenerator fns n
              let ts = zip ((0 :: Int) : inc i) ns
 
              xs <- forM ts $ \(p, n') -> do
@@ -165,7 +165,7 @@ createTasksToDepth pl master depth root fsC toC' =
        resG <- glob resMaster
 
       -- Need to closure up the nodes here?
-       let n' = toCnodeL toC $ n
+       let n' = toCnode toC n
        let task  = $(mkClosure [| safeBranchAndBoundSkeletonChildTask ( g
                                                                       , master
                                                                       , pl
@@ -208,8 +208,8 @@ safeBranchAndBoundSkeletonChildTask (taken, parent, pl, n, fsC, toC) =
     doStart <- unClosure <$> (spinGet =<< tryRPut taken toClosureUnit)
     if doStart
       then
-        let fsL      = extractBandBFunctions fsC
-            toCl     = extractToCFunctions toC
+        let fsL      = unClosure fsC
+            toCl     = unClosure toC
             n'       = unClosure n
         in safeBranchAndBoundSkeletonChild pl parent n' fsC fsL toCl
       else
@@ -220,15 +220,15 @@ safeBranchAndBoundSkeletonChild ::
     -> Node
     -> BBNode a b s
     -> Closure (BAndBFunctions a b s)
-    -> BAndBFunctionsL a b s
-    -> ToCFnsL a b s
+    -> BAndBFunctions a b s
+    -> ToCFns a b s
     -> Par (Closure ())
 safeBranchAndBoundSkeletonChild pl parent n fsC fsl toCL = do
     gbnd <- io $ readFromRegistry boundKey
 
     -- Check if we can prune first to avoid any extra work
-    lbnd <- pruningHeuristicL fsl n
-    case compareBL fsl lbnd gbnd of
+    lbnd <- pruningHeuristic fsl n
+    case compareB fsl lbnd gbnd of
       GT -> expandSequential pl parent n fsC fsl toCL >> return toClosureUnit
       _  -> return toClosureUnit
 

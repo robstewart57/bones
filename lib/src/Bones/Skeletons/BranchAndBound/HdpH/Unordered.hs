@@ -43,7 +43,7 @@ search pl depth root fs' toC = do
   initSolutionOnMaster root toC
 
   -- Gen top level
-  ts <- unClosure (orderedGenerator (unClosure fs')) root >>= sequence
+  ts <- orderedGenerator (unClosure fs') root >>= sequence
   let tasks = map (createChildren depth master) ts
 
   mapM (spawn one) tasks >>= mapM_ get
@@ -51,7 +51,7 @@ search pl depth root fs' toC = do
   io $ unClosure . fst <$> readFromRegistry solutionKey
     where
       createChildren d m n =
-          let n' = (unClosure $ toCnode (unClosure toC)) n
+          let n' = toCnode (unClosure toC) n
           in $(mkClosure [| branchAndBoundChild (d, m, pl, n', fs', toC) |])
 
 branchAndBoundChild ::
@@ -67,8 +67,8 @@ branchAndBoundChild (spawnDepth, parent, pl, n, fs', toC) =
     let fs = unClosure fs'
     gbnd <- io $ readFromRegistry boundKey
 
-    lbnd <- unClosure (pruningHeuristic fs) (unClosure n)
-    case unClosure (compareB fs) lbnd gbnd  of
+    lbnd <- pruningHeuristic fs (unClosure n)
+    case compareB fs lbnd gbnd  of
       GT -> branchAndBoundExpand pl spawnDepth parent n fs' toC >> return toClosureUnit
       _  -> return toClosureUnit
 
@@ -81,13 +81,13 @@ branchAndBoundExpand ::
     -> Closure (ToCFns a b s)
     -> Par ()
 branchAndBoundExpand pl depth parent n fs toC
-  | depth == 0 = let fsl  = extractBandBFunctions fs
-                     toCl = extractToCFunctions toC
+  | depth == 0 = let fsl  = unClosure fs
+                     toCl = unClosure toC
                  in expandSequential pl parent (unClosure n) fs fsl toCl
   | otherwise  = do
         -- Duplication from the main search function, extract
         let fs' = unClosure fs
-        ns <- (unClosure $ orderedGenerator fs') (unClosure n) >>= sequence
+        ns <- orderedGenerator fs' (unClosure n) >>= sequence
 
         let tasks = map (createChildren (depth - 1) parent) ns
 
@@ -95,7 +95,7 @@ branchAndBoundExpand pl depth parent n fs toC
 
   where
       createChildren d m n =
-          let n' = (unClosure $ toCnode (unClosure toC)) n
+          let n' = toCnode (unClosure toC) n
           in $(mkClosure [| branchAndBoundChild (d, m, pl, n', fs, toC) |])
 
 $(return []) -- TH Workaround

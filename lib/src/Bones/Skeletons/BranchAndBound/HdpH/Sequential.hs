@@ -14,17 +14,17 @@ import Bones.Skeletons.BranchAndBound.HdpH.Types
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 -- Assumes any global space state is already initialised
-search :: Bool -> BBNode a b s -> BAndBFunctionsL a b s -> Par a
+search :: Bool -> BBNode a b s -> BAndBFunctions a b s -> Par a
 search pl root@(ssol, sbnd, _) fns = do
   io $ addToRegistry solutionKey (ssol, sbnd)
   io $ addToRegistry boundKey sbnd
   expand pl root fns
   io $ fst <$> readFromRegistry solutionKey
 
-expand :: Bool -> BBNode a b s -> BAndBFunctionsL a b s -> Par ()
+expand :: Bool -> BBNode a b s -> BAndBFunctions a b s -> Par ()
 expand pl root fns = go1 root
   where
-    go1 n = orderedGeneratorL fns n >>= go
+    go1 n = orderedGenerator fns n >>= go
 
     go [] = return ()
 
@@ -35,26 +35,26 @@ expand pl root fns = go1 root
       -- if it's not needed)
       n' <- n
 
-      lbnd <- pruningHeuristicL fns n'
-      case compareBL fns lbnd gbnd of
+      lbnd <- pruningHeuristic fns n'
+      case compareB fns lbnd gbnd of
         GT -> do
-         when (compareBL fns (bound n') gbnd == GT) (updateLocalBoundAndSol n' fns)
+         when (compareB fns (bound n') gbnd == GT) (updateLocalBoundAndSol n' fns)
          go1 n' >> go ns
         _  -> unless pl $ go ns
 
 -- Technically we don't need atomic modify when we are sequential but this
 -- keeps us closer to the parallel version.
-updateLocalBoundAndSol :: BBNode a b s -> BAndBFunctionsL a b s -> Par ()
+updateLocalBoundAndSol :: BBNode a b s -> BAndBFunctions a b s -> Par ()
 updateLocalBoundAndSol n@(sol, bnd, _) fns = do
   -- Bnd
   bndRef <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' bndRef $ \b ->
-    if compareBL fns (bound n) b == GT then (bnd, ()) else (b, ())
+    if compareB fns (bound n) b == GT then (bnd, ()) else (b, ())
 
   -- Sol
   solRef <- io $ getRefFromRegistry solutionKey
   _ <- io $ atomicModifyIORef' solRef $ \prev@(_,b) ->
-        if compareBL fns (bound n) b == GT
+        if compareB fns (bound n) b == GT
             then ((sol, bnd), True)
             else (prev, False)
 

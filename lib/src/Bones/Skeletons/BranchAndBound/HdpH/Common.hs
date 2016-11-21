@@ -39,7 +39,7 @@ initSolutionOnMaster :: BBNode a b s
                      -> Closure (ToCFns a b s) -- ^ Explicit toClosure instances
                      -> Par () -- ^ Side-effect only
 initSolutionOnMaster n toC =
-  let toCsol = unClosure (toCa (unClosure toC))
+  let toCsol = toCa (unClosure toC)
       solC   = toCsol $ solution n
       bnd    = bound n
       -- We keep solutions in closure form until we ask for them. Bounds are
@@ -59,7 +59,7 @@ updateLocalBound bnd fs = do
   let n = (undefined, bnd, undefined)
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
-    if (unClosure $ compareB fs) (bound n) b == GT then (bnd, ()) else (b, ())
+    if compareB fs (bound n) b == GT then (bnd, ()) else (b, ())
 
 updateLocalBoundT :: ((Closure b), Closure (BAndBFunctions a b s))
                    -> Thunk (Par ())
@@ -91,7 +91,7 @@ updateParentBoundT ((s, bnd), fns) = Thunk $ do
   let n = (unClosure s, unClosure bnd, undefined)
   ref     <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if unClosure (compareB (unClosure fns)) (bound n) b == GT
+                if compareB (unClosure fns) (bound n) b == GT
                     then ((s, unClosure bnd), True)
                     else (prev              , False)
 
@@ -110,16 +110,16 @@ expandSequential ::
        -- ^ Root node for this (sub-tree) search
     -> Closure (BAndBFunctions a b s)
        -- ^ Closured function variants
-    -> BAndBFunctionsL a b s
+    -> BAndBFunctions a b s
        -- ^ Pre-unclosured local function variants
-    -> ToCFnsL a b s
+    -> ToCFns a b s
        -- ^ Explicit toClosure instances
     -> Par ()
        -- ^ Side-effect only function
 -- Be careful of n aliasing
-expandSequential pl parent n' fs fsl toCL = expand n'
+expandSequential pl parent n' fs fsl toC = expand n'
     where
-      expand n = orderedGeneratorL fsl n >>= go
+      expand n = orderedGenerator fsl n >>= go
 
       go [] = return ()
 
@@ -130,12 +130,12 @@ expandSequential pl parent n' fs fsl toCL = expand n'
         -- if it's not needed)
         node@(sol, bndl, _) <- n
 
-        lbnd <- pruningHeuristicL fsl node
-        case compareBL fsl lbnd gbnd of
+        lbnd <- pruningHeuristic fsl node
+        case compareB fsl lbnd gbnd of
           GT -> do
-            when (compareBL fsl (bound node) gbnd == GT) $ do
-                let cSol = toCaL toCL sol
-                    cBnd = toCbL toCL bndl
+            when (compareB fsl (bound node) gbnd == GT) $ do
+                let cSol = toCa toC sol
+                    cBnd = toCb toC bndl
                 updateLocalBound bndl (unClosure fs)
                 notifyParentOfNewBound parent (cSol, cBnd) fs
 

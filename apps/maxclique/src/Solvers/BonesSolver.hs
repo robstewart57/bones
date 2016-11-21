@@ -57,17 +57,17 @@ instance ToClosure VertexSet where locToClosure = $(here)
 
 instance ToClosure (Int, IBitSetArray) where locToClosure = $(here)
 
-instance ToClosure (BAndBFunctions ([Vertex], Int) Int VertexSet) where
-  locToClosure = $(here)
+funcDictIS :: BAndBFunctions ([Vertex], Int) Int VertexSet
+funcDictIS = BAndBFunctions orderedGeneratorIS pruningHeuristicIS cmpBnd
 
-instance ToClosure (ToCFns ([Vertex], Int) Int VertexSet) where
-  locToClosure = $(here)
+closureDictIS :: ToCFns ([Vertex], Int) Int VertexSet
+closureDictIS = ToCFns toClosureSol toClosureInt toClosureVertexSet toClosureMCNodeIS
 
-instance ToClosure (BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)) where
-  locToClosure = $(here)
+funcDictBS :: BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)
+funcDictBS = BAndBFunctions orderedGeneratorBS pruningHeuristicBS cmpBnd
 
-instance ToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)) where
-  locToClosure = $(here)
+closureDictBS :: ToCFns ([Vertex], Int) Int (Int,IBitSetArray)
+closureDictBS = ToCFns toClosureSol toClosureInt toClosureIBitSetArray toClosureMCNodeBS
 
 --------------------------------------------------------------------------------
 -- Max Clique Skeleton Functions
@@ -142,15 +142,8 @@ randomWSIntSet g depth = do
         True
         depth
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
-        (toClosure (BAndBFunctions
-          $(mkClosure [| orderedGeneratorIS |])
-          $(mkClosure [| pruningHeuristicIS |])
-          $(mkClosure [| cmpBnd |])))
-        (toClosure (ToCFns
-          $(mkClosure [| toClosureSol |])
-          $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureVertexSet|])
-          $(mkClosure [| toClosureMCNodeIS |])))
+        $(mkClosure [| funcDictIS |])
+        $(mkClosure [| closureDictIS |])
 
   return (vs, length vs)
 
@@ -162,15 +155,8 @@ randomWSBitArray nVertices depth = do
         True
         depth
         (([], 0), 0, (nVertices, initSet))
-        (toClosure (BAndBFunctions
-          $(mkClosure [| orderedGeneratorBS |])
-          $(mkClosure [| pruningHeuristicBS |])
-          $(mkClosure [| cmpBnd |])))
-        (toClosure (ToCFns
-          $(mkClosure [| toClosureSol |])
-          $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureIBitSetArray |])
-          $(mkClosure [| toClosureMCNodeBS |])))
+        $(mkClosure [| funcDictBS |])
+        $(mkClosure [| closureDictBS |])
 
   return (vs, length vs)
 
@@ -186,15 +172,8 @@ safeSkeletonIntSet g depth diversify = do
         diversify
         depth
         (([], 0), 0, VertexSet.fromAscList $ verticesG g)
-        (toClosure (BAndBFunctions
-          $(mkClosure [| orderedGeneratorIS |])
-          $(mkClosure [| pruningHeuristicIS |])
-          $(mkClosure [| cmpBnd |])))
-        (toClosure (ToCFns
-          $(mkClosure [| toClosureSol |])
-          $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureVertexSet|])
-          $(mkClosure [| toClosureMCNodeIS |])))
+        $(mkClosure [| funcDictIS |])
+        $(mkClosure [| closureDictIS |])
 
   return (vs, length vs)
 
@@ -207,15 +186,8 @@ safeSkeletonBitSetArray nVertices depth diversify = do
         diversify
         depth
         (([], 0), 0, (nVertices, initSet))
-        (toClosure (BAndBFunctions
-          $(mkClosure [| orderedGeneratorBS |])
-          $(mkClosure [| pruningHeuristicBS |])
-          $(mkClosure [| cmpBnd |])))
-        (toClosure (ToCFns
-          $(mkClosure [| toClosureSol |])
-          $(mkClosure [| toClosureInt |])
-          $(mkClosure [| toClosureIBitSetArray |])
-          $(mkClosure [| toClosureMCNodeBS |])))
+        $(mkClosure [| funcDictBS |])
+        $(mkClosure [| closureDictBS |])
 
   return (vs, length vs)
 
@@ -267,14 +239,20 @@ $(return [])
 declareStatic :: StaticDecl
 declareStatic = mconcat
   [
-    declare (staticToClosure :: StaticToClosure Int)
-  , declare (staticToClosure :: StaticToClosure [Vertex])
-  , declare (staticToClosure :: StaticToClosure VertexSet)
-  , declare (staticToClosure :: StaticToClosure (Vertex, Int))
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int VertexSet))
-  , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int  VertexSet))
-  , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)))
-  , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)))
+  --   declare (staticToClosure :: StaticToClosure Int)
+  -- , declare (staticToClosure :: StaticToClosure [Vertex])
+  -- , declare (staticToClosure :: StaticToClosure VertexSet)
+  -- , declare (staticToClosure :: StaticToClosure (Vertex, Int))
+  -- , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int VertexSet))
+  -- , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int  VertexSet))
+  -- , declare (staticToClosure :: StaticToClosure (BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)))
+  -- , declare (staticToClosure :: StaticToClosure (ToCFns ([Vertex], Int) Int (Int,IBitSetArray)))
+
+ -- Function Dicts
+    declare $(static 'funcDictIS)
+  , declare $(static 'funcDictBS)
+  , declare $(static 'closureDictIS)
+  , declare $(static 'closureDictBS)
 
   -- B&B Functions
   , declare $(static 'orderedGeneratorBS)

@@ -15,7 +15,6 @@ module Knapsack
 import Control.Parallel.HdpH hiding (declareStatic)
 
 import Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
-                                                 , BAndBFunctionsL(BAndBFunctionsL)
                                                  , PruneType(..), ToCFns(..))
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
@@ -44,6 +43,12 @@ instance NFData Solution where
 cmpBnd :: Int -> Int -> Ordering
 cmpBnd = compare
 
+funcDict :: BAndBFunctions Solution Int [Item]
+funcDict = BAndBFunctions orderedGenerator pruningHeuristic cmpBnd
+
+closureDict :: ToCFns Solution Int [Item]
+closureDict = ToCFns toClosureSolution toClosureInt toClosureItemList toClosureKPNode
+
 skeletonOrdered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
 skeletonOrdered items capacity depth diversify =
   Ordered.search
@@ -51,15 +56,8 @@ skeletonOrdered items capacity depth diversify =
     diversify
     depth
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
-    (toClosure (BAndBFunctions
-      $(mkClosure [| orderedGenerator |])
-      $(mkClosure [| pruningHeuristic |])
-      $(mkClosure [| cmpBnd |])))
-    (toClosure (ToCFns
-      $(mkClosure [| toClosureSolution |])
-      $(mkClosure [| toClosureInt |])
-      $(mkClosure [| toClosureItemList |])
-      $(mkClosure [| toClosureKPNode |])))
+    $(mkClosure [| funcDict |])
+    $(mkClosure [| closureDict |])
 
 skeletonUnordered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
 skeletonUnordered items capacity depth diversify =
@@ -67,22 +65,15 @@ skeletonUnordered items capacity depth diversify =
     True
     depth
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
-    (toClosure (BAndBFunctions
-      $(mkClosure [| orderedGenerator |])
-      $(mkClosure [| pruningHeuristic |])
-      $(mkClosure [| cmpBnd |])))
-    (toClosure (ToCFns
-      $(mkClosure [| toClosureSolution |])
-      $(mkClosure [| toClosureInt |])
-      $(mkClosure [| toClosureItemList |])
-      $(mkClosure [| toClosureKPNode |])))
+    $(mkClosure [| funcDict |])
+    $(mkClosure [| closureDict |])
 
 skeletonSequential :: [(Int, Int, Int)] -> Int -> Par Solution
 skeletonSequential items capacity =
   Sequential.search
     True
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
-    (BAndBFunctionsL orderedGenerator pruningHeuristic cmpBnd)
+    (BAndBFunctions orderedGenerator pruningHeuristic cmpBnd)
 
 --------------------------------------------------------------------------------
 -- Skeleton Functions
@@ -178,15 +169,6 @@ strengthen :: KPNode -> Int -> Bool
 strengthen (_, lbnd, _) gbnd = lbnd > gbnd
 
 --------------------------------------------------------------------------------
--- Closure Instances
---------------------------------------------------------------------------------
-instance ToClosure (BAndBFunctions Solution Int [Item]) where
-  locToClosure = $(here)
-
-instance ToClosure (ToCFns Solution Int [Item]) where
-  locToClosure = $(here)
-
---------------------------------------------------------------------------------
 -- Explicit ToClousre Instances (needed for performance)
 --------------------------------------------------------------------------------
 toClosureItem :: Item -> Closure Item
@@ -230,8 +212,9 @@ $(return [])
 declareStatic :: StaticDecl
 declareStatic = mconcat
   [
-    declare (staticToClosure :: StaticToClosure (BAndBFunctions Solution Int [Item]))
-  , declare (staticToClosure :: StaticToClosure (ToCFns Solution Int [Item]))
+  -- Functions
+    declare $(static 'funcDict)
+  , declare $(static 'closureDict)
 
   -- B&B Functions
   , declare $(static 'orderedGenerator)

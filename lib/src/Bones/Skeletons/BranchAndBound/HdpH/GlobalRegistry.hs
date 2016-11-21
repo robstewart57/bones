@@ -104,7 +104,7 @@ initLocalRegistries :: [Node] -- ^ Nodes to initialise
                     -> Par () -- ^ Side-effect only
 initLocalRegistries nodes bnd toCFns =
   let toC    = unClosure toCFns
-      toCBnd = unClosure $ toCb toC
+      toCBnd = toCb toC
       bnd' = toCBnd bnd
   in
   forM_ nodes $ \n -> pushTo $(mkClosure [| initRegistryBound bnd' |]) n
