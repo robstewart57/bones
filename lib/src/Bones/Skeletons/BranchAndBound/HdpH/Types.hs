@@ -28,7 +28,7 @@ candidates (_, _, s) = s
 data BAndBFunctions a b s =
   BAndBFunctions
     { orderedGenerator :: Closure (BBNode a b s -> Par [Par (BBNode a b s)])
-    , pruningHeuristic :: Closure (BBNode a b s -> b -> Par PruneType)
+    , pruningHeuristic :: Closure (BBNode a b s -> Par b)
     , compareB         :: Closure (b -> b -> Ordering)
     } deriving (Generic)
 
@@ -43,7 +43,7 @@ data ToCFns a b s =
 data BAndBFunctionsL a b s =
   BAndBFunctionsL
     { orderedGeneratorL :: BBNode a b s -> Par [Par (BBNode a b s)]
-    , pruningHeuristicL :: BBNode a b s -> b -> Par PruneType
+    , pruningHeuristicL :: BBNode a b s -> Par b
     , compareBL         :: b -> b -> Ordering
     } deriving (Generic)
 

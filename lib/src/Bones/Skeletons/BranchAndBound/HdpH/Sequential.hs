@@ -29,19 +29,18 @@ expand root fns = go1 root
     go [] = return ()
 
     go (n:ns) = do
-      bnd <- io $ readFromRegistry boundKey
+      gbnd <- io $ readFromRegistry boundKey
 
       -- Manually force evaluation (used to avoid fully evaluating the node list
       -- if it's not needed)
       n' <- n
 
-      sp <- pruningPredicateL fns n' bnd
-      case sp of
-        Prune      -> go ns
-        PruneLevel -> return ()
-        NoPrune    -> do
-         when (strengthenL fns n' bnd) (updateLocalBoundAndSol n' fns)
+      lbnd <- pruningHeuristicL fns n'
+      case compareBL fns lbnd gbnd of
+        GT -> do
+         when (compareBL fns (bound n') gbnd == GT) (updateLocalBoundAndSol n' fns)
          go1 n' >> go ns
+        _  -> go ns
 
 -- Technically we don't need atomic modify when we are sequential but this
 -- keeps us closer to the parallel version.
@@ -50,12 +49,12 @@ updateLocalBoundAndSol n@(sol, bnd, _) fns = do
   -- Bnd
   bndRef <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' bndRef $ \b ->
-    if strengthenL fns n b then (bnd, ()) else (b, ())
+    if compareBL fns (bound n) b == GT then (bnd, ()) else (b, ())
 
   -- Sol
   solRef <- io $ getRefFromRegistry solutionKey
   _ <- io $ atomicModifyIORef' solRef $ \prev@(_,b) ->
-        if strengthenL fns n b
+        if compareBL fns (bound n) b == GT
             then ((sol, bnd), True)
             else (prev, False)
 

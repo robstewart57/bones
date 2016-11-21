@@ -62,12 +62,12 @@ branchAndBoundChild ::
 branchAndBoundChild (spawnDepth, parent, n, fs', toC) =
   Thunk $ do
     let fs = unClosure fs'
-    bnd <- io $ readFromRegistry boundKey
+    gbnd <- io $ readFromRegistry boundKey
 
-    sp <- unClosure (pruningPredicate fs) (unClosure n) bnd
-    case sp of
-      NoPrune -> branchAndBoundExpand spawnDepth parent n fs' toC >> return toClosureUnit
-      _       -> return toClosureUnit
+    lbnd <- unClosure (pruningHeuristic fs) (unClosure n)
+    case unClosure (compareB fs) lbnd gbnd  of
+      GT -> branchAndBoundExpand spawnDepth parent n fs' toC >> return toClosureUnit
+      _  -> return toClosureUnit
 
 branchAndBoundExpand ::
        Int

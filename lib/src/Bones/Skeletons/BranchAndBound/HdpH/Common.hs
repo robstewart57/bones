@@ -59,7 +59,7 @@ updateLocalBound bnd fs = do
   let n = (undefined, bnd, undefined)
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
-    if (unClosure $ strengthen fs) n b then (bnd, ()) else (b, ())
+    if (unClosure $ compareB fs) (bound n) b == GT then (bnd, ()) else (b, ())
 
 updateLocalBoundT :: ((Closure b), Closure (BAndBFunctions a b s))
                    -> Thunk (Par ())
@@ -91,7 +91,7 @@ updateParentBoundT ((s, bnd), fns) = Thunk $ do
   let n = (unClosure s, unClosure bnd, undefined)
   ref     <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if unClosure (strengthen (unClosure fns)) n b
+                if unClosure (compareB (unClosure fns)) (bound n) b == GT
                     then ((s, unClosure bnd), True)
                     else (prev              , False)
 
@@ -122,24 +122,23 @@ expandSequential parent n' fs fsl toCL = expand n'
       go [] = return ()
 
       go (n:ns) = do
-        bnd <- io $ readFromRegistry boundKey
+        gbnd <- io $ readFromRegistry boundKey
 
         -- Manually force evaluation (used to avoid fully evaluating the node list
         -- if it's not needed)
         node@(sol, bndl, _) <- n
 
-        sp <- pruningPredicateL fsl node bnd
-        case sp of
-          Prune      -> go ns
-          PruneLevel -> return ()
-          NoPrune    -> do
-            when (strengthenL fsl node bnd) $ do
+        lbnd <- pruningHeuristicL fsl node
+        case compareBL fsl lbnd gbnd of
+          GT -> do
+            when (compareBL fsl (bound node) gbnd == GT) $ do
                 let cSol = toCaL toCL sol
                     cBnd = toCbL toCL bndl
                 updateLocalBound bndl (unClosure fs)
                 notifyParentOfNewBound parent (cSol, cBnd) fs
 
             expand node >> go ns
+          _ -> go ns
 
 
 $(return []) -- TH Workaround
