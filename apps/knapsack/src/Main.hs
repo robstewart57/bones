@@ -40,7 +40,6 @@ import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
 data Algorithm = Ordered
                | Unordered
                | Sequential
-               | SequentialExpand
                deriving (Read, Show)
 
 data Options = Options
@@ -62,7 +61,7 @@ optionParser = Options
                 <> short 'a'
                 <> help "Which Knapsack algorithm to use: \
                        \ [Ordered, Unordered,\
-                       \ Sequential, SequentialExpand]"
+                       \ Sequential]"
                 )
           <*> optional (option auto
                 (   long "spawnDepth"
@@ -210,13 +209,6 @@ main = do
     Sequential -> do
       register $ HdpH.declareStatic
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential items' cap)
-      case sol of
-            Nothing -> return (Nothing, t)
-            Just (KL.Solution _ _ is prof weig) ->
-              return (Just (is, prof, weig), t)
-    SequentialExpand -> do
-      register $ HdpH.declareStatic
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.sequentialInlined items' cap)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ _ is prof weig) ->

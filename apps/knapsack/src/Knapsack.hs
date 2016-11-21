@@ -8,7 +8,6 @@ module Knapsack
     skeletonOrdered
   , skeletonUnordered
   , skeletonSequential
-  , sequentialInlined
   , declareStatic
   , Solution(..)
 ) where
@@ -79,70 +78,6 @@ skeletonSequential items capacity =
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
     (BAndBFunctionsL orderedGenerator pruningPredicate strengthen)
 
--- --------------------------------------------------------------------------------
--- -- An inlined version of the sequential skeleton
--- --------------------------------------------------------------------------------
-sequentialInlined :: [(Int, Int, Int)] -> Int -> Par Solution
-sequentialInlined items capacity =
-  seqSearch (Solution (length items) capacity [] 0 0) (map (\(a,b,c) -> a) items) 0
-
--- Assumes any global space state is already initialised
-seqSearch :: Solution -> [Item] -> Int -> Par a
-seqSearch ssol sspace sbnd = do
-  io $ addToRegistry solutionKey (ssol, sbnd)
-  io $ addToRegistry boundKey sbnd
-  expand ssol sspace
-  io $ fst <$> readFromRegistry solutionKey
-
-expand :: Solution -> [Item] -> Par ()
-expand = go1
-  where
-    go1 s r = generateChoices s r >>= go s r -- \cs -> case cs of [] -> io (putStrLn "Close") >> go s r []
-                                                        --xs -> go s r xs
-
-    go _ _ [] = return ()
-
-    go sol remaining (c:cs) = do
-      bnd <- io $ readFromRegistry boundKey
-
-      sp <- shouldPrune c bnd sol remaining
-      case sp of
-        Prune      -> do
-          remaining'' <- removeChoice c remaining
-          go sol remaining'' cs
-
-        PruneLevel -> do
-          -- io . putStrLn $ "Prune"
-          return ()
-
-        NoPrune    -> do
-          (newSol, newBnd, remaining') <- step c sol remaining
-
-          when (shouldUpdateBound newBnd bnd) $
-              updateLocalBoundAndSol newSol newBnd
-
-          go1 newSol remaining'
-
-          remaining'' <- removeChoice c remaining
-          go sol remaining'' cs
-
--- TODO: Technically we don't need atomic modify when we are sequential but this
--- keeps us closer to the parallel version.
-updateLocalBoundAndSol :: Solution -> Int -> Par ()
-updateLocalBoundAndSol sol bnd = do
-  -- Bnd
-  ref <- io $ getRefFromRegistry boundKey
-  io $ atomicModifyIORef' ref $ \b ->
-    if shouldUpdateBound bnd b then (bnd, ()) else (b, ())
-
-  -- Sol
-  ref <- io $ getRefFromRegistry solutionKey
-  io $ atomicModifyIORef' ref $ \prev@(_,b) ->
-        if shouldUpdateBound bnd b
-            then ((sol, bnd), True)
-            else (prev, False)
-
-  return ()
 
 --------------------------------------------------------------------------------
 -- Skeleton Functions
