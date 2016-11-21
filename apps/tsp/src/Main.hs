@@ -20,10 +20,13 @@ import           Control.Monad.ST
 import           Control.Parallel.HdpH
 import qualified Control.Parallel.HdpH    as HdpH (declareStatic)
 
+import Data.Array.Base
+import Data.Array.MArray
 import Data.Array.Unboxed
 import Data.Array.ST
 import Data.Foldable (foldlM, toList)
 import Data.Maybe (fromMaybe)
+import Data.List (foldl')
 import Data.IORef
 
 import Data.Sequence ((|>), ViewR(..), ViewL(..))
@@ -133,7 +136,7 @@ buildDistanceMatrix nodes = array ((minId, minId), (maxId, maxId)) distances
         getNodeDistances n = map (\other -> distanceBetween n other) nodes
 
         distanceBetween n1 n2 =
-          let d = calcDistanceEUC2D n1 n2 in ((nodeInfo_id n1, nodeInfo_id n2), d)
+          let !d = calcDistanceEUC2D n1 n2 in ((nodeInfo_id n1, nodeInfo_id n2), d)
 
 -- Skeleton Functions
 -- SearchNode :: Sol, Bound, Space
@@ -180,7 +183,7 @@ orderedGenerator ((path, pathL), lbnd, rem) = case Seq.viewl path of
     constructTopLevel l = return ((Seq.singleton l, 0), lbnd, LocationSet.delete l rem)
 
 pruningPredicate :: SearchNode -> Int -> Par PruneType
-pruningPredicate ((path, pathL), _, rem) gbnd = do
+pruningPredicate ((!path, !pathL), _, rem) !gbnd = do
   dists <- io $ readFromRegistry searchSpaceKey :: Par DistanceMatrix
   let lb = weightMST dists (unsafeLast path) (LocationSet.insert (unsafeFirst path) rem)
   -- Debugging if required
@@ -206,8 +209,8 @@ lbSimple path rem dists
                    + (sum $ map sumTuple $ map (\n -> low2 n available) rem)
                    ) `div` 2
   where
-    low1 n ns = foldl (\l1 m -> if n /= m && dists ! (n,m) < l1 then dists ! (n,m) else l1) (maxBound :: Int) ns
-    low2 n ns = foldl (findLowest n) (maxBound :: Int, maxBound :: Int) ns
+    low1 n ns = foldl' (\l1 m -> if n /= m && dists ! (n,m) < l1 then dists ! (n,m) else l1) (maxBound :: Int) ns
+    low2 n ns = foldl' (findLowest n) (maxBound :: Int, maxBound :: Int) ns
 
     sumTuple = uncurry (+)
 
@@ -230,16 +233,16 @@ greedyNN :: DistanceMatrix -> [Location] -> Path
 greedyNN dists (l:ls) = go l ls Seq.empty
   where
     -- We add the loopback to root here
-    go cur [] p = p |> cur |> unsafeFirst p
+    go !cur [] p = p |> cur |> unsafeFirst p
 
-    go cur ls p = let m = findMinEdge cur ls
-                      ls' = filter (\n -> n /= m) ls
-                      p' = p |> cur
-                  in go m ls' p'
+    go !cur ls p = let m = findMinEdge cur ls
+                       ls' = filter (\n -> n /= m) ls
+                       p' = p |> cur
+                   in go m ls' p'
 
-    findMinEdge n = fst . foldl (\acc@(_, s) m -> if dists ! (n, m) < s
-                                                  then (m, dists ! (n,m))
-                                                  else acc) (0, maxBound :: Int)
+    findMinEdge n = fst . foldl' (\acc@(_, s) m -> if dists ! (n, m) < s
+                                                   then (m, dists ! (n,m))
+                                                   else acc) (0, maxBound :: Int)
 
 -- MST
 type Weight = Int
@@ -248,39 +251,41 @@ type WeightMap s = STUArray s Location Weight
 -- Returns the weight of an MST covering the set `vertices` plus `v0`;
 -- `vertices` must not contain `v0`.
 weightMST :: DistanceMatrix -> Location -> LocationSet -> Weight
-weightMST dists v0 vertices = runST $ do
+weightMST dists !v0 vertices = runST $ do
   weight <- initPrim dists v0 (LocationSet.toList vertices)
-  let p (_, _, vertices) = LocationSet.null vertices
-  let f (!w, v0, !vertices) = do
-        (v',w') <- stepPrim dists weight v0 (LocationSet.toList vertices)
-        return (w + w', v', LocationSet.delete v' vertices)
+  let p (_, _, !vertices) = LocationSet.null vertices
+  let f (!w, !v0, !vertices) = do
+        (!v',!w') <- stepPrim dists weight v0 (LocationSet.toList vertices)
+        return $! (w + w', v', LocationSet.delete v' vertices)
   (!w, _, _) <- untilM p f (0, v0, vertices)
   return w
 
-untilM :: (Monad m) => (a -> Bool) -> (a -> m a) -> a -> m a
+-- untilM :: (Monad m) => (a -> Bool) -> (a -> m a) -> a -> m a
+untilM :: (a -> Bool) -> (a -> ST s a) -> a -> ST s a
 untilM p act = go
   where
     go x | p x       = return x
          | otherwise = act x >>= go
 
 initPrim :: DistanceMatrix -> Location -> [Location] -> ST s (WeightMap s)
-initPrim dists v0 vs = do
-  let ((m,_),(n,_)) = bounds dists
+initPrim dists !v0 vs = do
+  let ((!m,_),(!n,_)) = bounds dists
   weight <- newArray (m,n) 0
-  forM_ vs $ \ v -> writeArray weight v $ dists ! (v0, v)
+  forM_ vs $ \ !v -> writeArray weight v $ dists ! (v0, v)
   return weight
 
 stepPrim :: forall s. DistanceMatrix -> WeightMap s -> Location -> [Location]
                     -> ST s (Location, Weight)
 stepPrim dists weight v0 (v:vs) = do
-  w <- updateWeightMapPrim dists weight v0 v
+  !w <- updateWeightMapPrim dists weight v0 v
   foldlM f (v,w) vs
     where
       f :: (Location, Weight) -> Location -> ST s (Location, Weight)
       f z@(_,w) v = do
-        w' <- updateWeightMapPrim dists weight v0 v
+        !w' <- updateWeightMapPrim dists weight v0 v
         if w' < w then return (v,w') else return z
 
+{- original
 updateWeightMapPrim :: DistanceMatrix -> WeightMap s -> Location -> Location -> ST s Weight
 updateWeightMapPrim dists weight v0 v = do
   w <- readArray weight v
@@ -288,6 +293,31 @@ updateWeightMapPrim dists weight v0 v = do
   if w' < w
     then writeArray weight v w' >> return w'
     else return w
+-}
+
+-- |this version only calls `getBounds` and `getNumElements` once,
+-- whereas the `readArray` and `writeArray` calls both, i.e. twice.
+updateWeightMapPrim :: DistanceMatrix -> WeightMap s -> Location -> Location -> ST s Weight
+updateWeightMapPrim dists weight !v0 !v = do
+  withArray weight v compareElems newElem
+  where
+    !w' = dists ! (v0,v)
+    compareElems !w = w' < w
+    newElem   = w'
+
+    withArray :: STUArray s Location Weight -> Location -> (Weight -> Bool) -> Weight -> ST s Weight
+    withArray marr !i compareFun !newElem = do
+      (!l,!u) <- getBounds marr
+      !n <- getNumElements marr
+      let !idx = safeIndex (l,u) n i
+      !theElement <- unsafeRead marr idx
+      if compareFun theElement
+      then do
+        unsafeWrite marr idx newElem
+        return newElem
+      else return theElement
+    {-# INLINE withArray #-}
+{-# INLINE updateWeightMapPrim #-}
 
 -- Test Instances
 testInstance1 :: DistanceMatrix
@@ -299,7 +329,7 @@ testInstance1 = array ((1,1),(4,4))
 
 -- Other closury stuff
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
-orderedSearch distances depth dds = do
+orderedSearch distances !depth !dds = do
 
   let allLocs = [1 .. (fst . snd $ bounds distances)]
       greedy  = greedyNN distances allLocs
@@ -321,7 +351,7 @@ orderedSearch distances depth dds = do
   return path
 
 unorderedSearch :: DistanceMatrix -> Int -> Par Path
-unorderedSearch distances depth = do
+unorderedSearch distances !depth = do
 
   let allLocs = [1 .. (fst . snd $ bounds distances)]
       greedy  = greedyNN distances allLocs
