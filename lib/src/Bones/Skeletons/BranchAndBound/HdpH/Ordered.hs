@@ -223,8 +223,8 @@ safeBranchAndBoundSkeletonChild parent n fsC fsl toCL = do
     -- Check if we can prune first to avoid any extra work
     lbnd <- pruningHeuristicL fsl n
     case compareBL fsl lbnd gbnd of
-      _  -> return toClosureUnit
       GT -> expandSequential parent n fsC fsl toCL >> return toClosureUnit
+      _  -> return toClosureUnit
 
 $(return []) -- TH Workaround
 declareStatic :: StaticDecl
