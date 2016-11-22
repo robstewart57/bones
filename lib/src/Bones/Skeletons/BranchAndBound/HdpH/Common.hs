@@ -49,7 +49,7 @@ initSolutionOnMaster n toC =
 -- | Update local bounds
 updateLocalBound ::  b
                   -- ^ New best solution
-                  -> BAndBFunctions a b s
+                  -> BAndBFunctions g a b s
                   -- ^ Functions (to access the strengthen function)
                   -> Par ()
                   -- ^ Side-effect only function
@@ -61,7 +61,7 @@ updateLocalBound bnd fs = do
   io $ atomicModifyIORef' ref $ \b ->
     if compareB fs (bound n) b == GT then (bnd, ()) else (b, ())
 
-updateLocalBoundT :: ((Closure b), Closure (BAndBFunctions a b s))
+updateLocalBoundT :: ((Closure b), Closure (BAndBFunctions g a b s))
                    -> Thunk (Par ())
 updateLocalBoundT (bndC, fns) = Thunk $ updateLocalBound (unClosure bndC) (unClosure fns)
 
@@ -71,7 +71,7 @@ notifyParentOfNewBound :: Node
                        -- ^ Master node
                        -> (Closure a, Closure b)
                        -- ^ New updated solution
-                       -> Closure (BAndBFunctions a b s)
+                       -> Closure (BAndBFunctions g a b s)
                        -- ^ Strengthen Function
                        -> Par ()
                        -- ^ Side-effect only function
@@ -83,7 +83,7 @@ notifyParentOfNewBound parent best fs = do
 
 -- | Update the global solution with the new solution. If this succeeds then
 --   tell all other nodes to update their local information.
-updateParentBoundT :: ((Closure a, Closure b), Closure (BAndBFunctions a b s))
+updateParentBoundT :: ((Closure a, Closure b), Closure (BAndBFunctions g a b s))
                      -- ^ (Node, Functions)
                      -> Thunk (Par (Closure ()))
                      -- ^ Side-effect only function
@@ -108,18 +108,20 @@ expandSequential ::
        -- ^ Master node (for transferring new bounds)
     -> BBNode a b s
        -- ^ Root node for this (sub-tree) search
-    -> Closure (BAndBFunctions a b s)
+    -> g
+       -- ^ Global search space
+    -> Closure (BAndBFunctions g a b s)
        -- ^ Closured function variants
-    -> BAndBFunctions a b s
+    -> BAndBFunctions g a b s
        -- ^ Pre-unclosured local function variants
     -> ToCFns a b s
        -- ^ Explicit toClosure instances
     -> Par ()
        -- ^ Side-effect only function
 -- Be careful of n aliasing
-expandSequential pl parent n' fs fsl toC = expand n'
+expandSequential pl parent n' space fs fsl toC = expand n'
     where
-      expand n = orderedGenerator fsl n >>= go
+      expand n = orderedGenerator fsl space n >>= go
 
       go [] = return ()
 
@@ -130,7 +132,7 @@ expandSequential pl parent n' fs fsl toC = expand n'
         -- if it's not needed)
         node@(sol, bndl, _) <- n
 
-        lbnd <- pruningHeuristic fsl node
+        lbnd <- pruningHeuristic fsl space node
         case compareB fsl lbnd gbnd of
           GT -> do
             when (compareB fsl (bound node) gbnd == GT) $ do

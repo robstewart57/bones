@@ -14,17 +14,18 @@ import Bones.Skeletons.BranchAndBound.HdpH.Types
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 -- Assumes any global space state is already initialised
-search :: Bool -> BBNode a b s -> BAndBFunctions a b s -> Par a
+search :: Bool -> BBNode a b s -> BAndBFunctions g a b s -> Par a
 search pl root@(ssol, sbnd, _) fns = do
   io $ addToRegistry solutionKey (ssol, sbnd)
   io $ addToRegistry boundKey sbnd
-  expand pl root fns
+  space <- io $ getGlobalSearchSpace
+  expand pl space root fns
   io $ fst <$> readFromRegistry solutionKey
 
-expand :: Bool -> BBNode a b s -> BAndBFunctions a b s -> Par ()
-expand pl root fns = go1 root
+expand :: Bool -> g -> BBNode a b s -> BAndBFunctions g a b s -> Par ()
+expand pl space root fns = go1 root
   where
-    go1 n = orderedGenerator fns n >>= go
+    go1 n = orderedGenerator fns space n >>= go
 
     go [] = return ()
 
@@ -35,7 +36,7 @@ expand pl root fns = go1 root
       -- if it's not needed)
       n' <- n
 
-      lbnd <- pruningHeuristic fns n'
+      lbnd <- pruningHeuristic fns space n'
       case compareB fns lbnd gbnd of
         GT -> do
          when (compareB fns (bound n') gbnd == GT) (updateLocalBoundAndSol n' fns)
@@ -44,7 +45,7 @@ expand pl root fns = go1 root
 
 -- Technically we don't need atomic modify when we are sequential but this
 -- keeps us closer to the parallel version.
-updateLocalBoundAndSol :: BBNode a b s -> BAndBFunctions a b s -> Par ()
+updateLocalBoundAndSol :: BBNode a b s -> BAndBFunctions g a b s -> Par ()
 updateLocalBoundAndSol n@(sol, bnd, _) fns = do
   -- Bnd
   bndRef <- io $ getRefFromRegistry boundKey

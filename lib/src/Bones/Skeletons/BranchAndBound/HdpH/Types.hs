@@ -21,10 +21,10 @@ solution (s, _ , _ )= s
 candidates :: BBNode a b s -> s
 candidates (_, _, s) = s
 
-data BAndBFunctions a b s =
+data BAndBFunctions g a b s =
   BAndBFunctions
-    { orderedGenerator :: BBNode a b s -> Par [Par (BBNode a b s)]
-    , pruningHeuristic :: BBNode a b s -> Par b
+    { orderedGenerator :: g -> BBNode a b s -> Par [Par (BBNode a b s)]
+    , pruningHeuristic :: g -> BBNode a b s -> Par b
     , compareB         :: b -> b -> Ordering
     } deriving (Generic)
 

@@ -31,7 +31,7 @@ search ::
           Bool                              -- ^ Enable pruneLevel optimisation
        -> Int                               -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
        -> BBNode a b s                      -- ^ Root Node
-       -> Closure (BAndBFunctions a b s)    -- ^ Higher order B&B functions
+       -> Closure (BAndBFunctions g a b s)    -- ^ Higher order B&B functions
        -> Closure (ToCFns a b s)            -- ^ Explicit toClosure instances
        -> Par a                             -- ^ The resulting solution after the search completes
 search pl depth root fs' toC = do
@@ -43,7 +43,8 @@ search pl depth root fs' toC = do
   initSolutionOnMaster root toC
 
   -- Gen top level
-  ts <- orderedGenerator (unClosure fs') root >>= sequence
+  space <- io getGlobalSearchSpace
+  ts <- orderedGenerator (unClosure fs') space root >>= sequence
   let tasks = map (createChildren depth master) ts
 
   mapM (spawn one) tasks >>= mapM_ get
@@ -59,15 +60,16 @@ branchAndBoundChild ::
     , Node
     , Bool
     , Closure (BBNode a b s)
-    , Closure (BAndBFunctions a b s)
+    , Closure (BAndBFunctions g a b s)
     , Closure (ToCFns a b s))
     -> Thunk (Par (Closure ()))
 branchAndBoundChild (spawnDepth, parent, pl, n, fs', toC) =
   Thunk $ do
     let fs = unClosure fs'
     gbnd <- io $ readFromRegistry boundKey
+    space <- io getGlobalSearchSpace
 
-    lbnd <- pruningHeuristic fs (unClosure n)
+    lbnd <- pruningHeuristic fs space (unClosure n)
     case compareB fs lbnd gbnd  of
       GT -> branchAndBoundExpand pl spawnDepth parent n fs' toC >> return toClosureUnit
       _  -> return toClosureUnit
@@ -77,17 +79,20 @@ branchAndBoundExpand ::
     -> Int
     -> Node
     -> Closure (BBNode a b s)
-    -> Closure (BAndBFunctions a b s)
+    -> Closure (BAndBFunctions g a b s)
     -> Closure (ToCFns a b s)
     -> Par ()
 branchAndBoundExpand pl depth parent n fs toC
   | depth == 0 = let fsl  = unClosure fs
                      toCl = unClosure toC
-                 in expandSequential pl parent (unClosure n) fs fsl toCl
+                 in do
+                    space <- io getGlobalSearchSpace
+                    expandSequential pl parent (unClosure n) space fs fsl toCl
   | otherwise  = do
         -- Duplication from the main search function, extract
         let fs' = unClosure fs
-        ns <- orderedGenerator fs' (unClosure n) >>= sequence
+        space <- io getGlobalSearchSpace
+        ns <- orderedGenerator fs' space (unClosure n) >>= sequence
 
         let tasks = map (createChildren (depth - 1) parent) ns
 
