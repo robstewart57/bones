@@ -37,13 +37,15 @@ import Data.Array.Unboxed
 data Solution = Solution !Int !Int ![Item] !Int !Int deriving (Generic, Show)
 type Item = Int
 
+type Space = (Array Int Int, Array Int Int)
+
 instance Serialize Solution where
 instance NFData Solution where
 
 cmpBnd :: Int -> Int -> Ordering
 cmpBnd = compare
 
-funcDict :: BAndBFunctions Solution Int [Item]
+funcDict :: BAndBFunctions Space Solution Int [Item]
 funcDict = BAndBFunctions orderedGenerator pruningHeuristic cmpBnd
 
 closureDict :: ToCFns Solution Int [Item]
@@ -88,9 +90,8 @@ skeletonSequential items capacity =
 
 -- Potential choices is simply the list of un-chosen items
 
-generateChoices :: Solution -> [Item] -> Par [Item]
-generateChoices (Solution _ cap _ _ curWeight) remaining = do
-  (_ , weights) <- io (getGlobalSearchSpace :: IO (Array Int Int, Array Int Int))
+generateChoices :: Space -> Solution -> [Item] -> Par [Item]
+generateChoices (_, weights) (Solution _ cap _ _ curWeight) remaining =
   return $ filter (\i -> curWeight + fromIntegral (weights ! i) <= cap) remaining
 
 -- Calculate the bounds function
@@ -137,9 +138,8 @@ removeChoice i its = return $ delete i its
 
 type KPNode = (Solution, Int, [Int])
 
-orderedGenerator :: KPNode -> Par [Par KPNode]
-orderedGenerator ((Solution mix cap is solP solW), bnd, remaining) = do
-  (profits, weights) <- io (getGlobalSearchSpace :: IO (Array Int Int, Array Int Int))
+orderedGenerator :: Space -> KPNode -> Par [Par KPNode]
+orderedGenerator (profits, weights) (Solution mix cap is solP solW, bnd, remaining) = do
   let items = filter (\i -> solW + fromIntegral (weights ! i) <= cap) remaining
 
   return $ map (\i -> return (Solution mix cap (i:is) (solP + (profits ! i)) (solW + (weights ! i)),
@@ -147,11 +147,9 @@ orderedGenerator ((Solution mix cap is solP solW), bnd, remaining) = do
                               delete i remaining)) items
 
 -- May prune level
-pruningHeuristic :: KPNode -> Par Int
-pruningHeuristic ((Solution mix cap (i:is) solP solW), _, _) = do
-  (profits, weights) <- io getGlobalSearchSpace
+pruningHeuristic :: Space -> KPNode -> Par Int
+pruningHeuristic (profits, weights) (Solution mix cap (i:is) solP solW, _, _) = do
   -- Profits/weights already in solution for i so don't add them again does this work for i = 0?
-
   return $ round $ ub profits weights solP solW (i + 1)
 
   where
