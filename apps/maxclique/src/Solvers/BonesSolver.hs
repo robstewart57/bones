@@ -57,13 +57,13 @@ instance ToClosure VertexSet where locToClosure = $(here)
 
 instance ToClosure (Int, IBitSetArray) where locToClosure = $(here)
 
-funcDictIS :: BAndBFunctions ([Vertex], Int) Int VertexSet
+funcDictIS :: BAndBFunctions Graph ([Vertex], Int) Int VertexSet
 funcDictIS = BAndBFunctions orderedGeneratorIS pruningHeuristicIS cmpBnd
 
 closureDictIS :: ToCFns ([Vertex], Int) Int VertexSet
 closureDictIS = ToCFns toClosureSol toClosureInt toClosureVertexSet toClosureMCNodeIS
 
-funcDictBS :: BAndBFunctions ([Vertex], Int) Int (Int,IBitSetArray)
+funcDictBS :: BAndBFunctions (GraphArray, GraphArray) ([Vertex], Int) Int (Int,IBitSetArray)
 funcDictBS = BAndBFunctions orderedGeneratorBS pruningHeuristicBS cmpBnd
 
 closureDictBS :: ToCFns ([Vertex], Int) Int (Int,IBitSetArray)
@@ -79,10 +79,8 @@ cmpBnd :: Int -> Int -> Ordering
 cmpBnd = compare
 
 -- BitSet
-orderedGeneratorBS :: MCNodeBS -> Par [Par MCNodeBS]
-orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
-  (g, gC) <- io $ readFromRegistry searchSpaceKey
-
+orderedGeneratorBS :: (GraphArray, GraphArray) -> MCNodeBS -> Par [Par MCNodeBS]
+orderedGeneratorBS (g, gC) ((sol, cols), bnd, (szspace, space)) = do
   (cs, space') <- io $ do
     vs'    <- ArrayVertexSet.fromImmutable space
     cs     <- colourOrderBitSetArray gC vs' szspace
@@ -109,16 +107,14 @@ orderedGeneratorBS ((sol, cols), bnd, (szspace, space)) = do
       remain       <- ArrayVertexSet.makeImmutable newVs
       return (pc, remain)
 
-pruningHeuristicBS :: MCNodeBS -> Par Int
-pruningHeuristicBS ((sol, cols), lbnd, _) = return $ lbnd + cols
+pruningHeuristicBS :: (GraphArray, GraphArray) -> MCNodeBS -> Par Int
+pruningHeuristicBS _ ((sol, cols), lbnd, _) = return $ lbnd + cols
 
 -- IntSet
 type MCNodeIS = (([Vertex], Int), Int, VertexSet)
 
-orderedGeneratorIS :: MCNodeIS -> Par [Par MCNodeIS]
-orderedGeneratorIS ((sol, cols), bnd, vs) = do
-  g <- io $ readFromRegistry searchSpaceKey
-
+orderedGeneratorIS :: Graph -> MCNodeIS -> Par [Par MCNodeIS]
+orderedGeneratorIS g ((sol, cols), bnd, vs) = do
   let sols = colourOrder g vs
       cs   = tail $ scanl (\acc (v, c) -> VertexSet.delete v acc) vs sols
 
@@ -128,8 +124,8 @@ orderedGeneratorIS ((sol, cols), bnd, vs) = do
           let space' = VertexSet.intersection space (adjacentG graph v)
           return ((v : sol, c - 1), bnd + 1, space')
 
-pruningHeuristicIS :: MCNodeIS -> Par Int
-pruningHeuristicIS ((sol, cols), lbnd, _) = return $ lbnd + cols
+pruningHeuristicIS :: Graph -> MCNodeIS -> Par Int
+pruningHeuristicIS _ ((sol, cols), lbnd, _) = return $ lbnd + cols
 
 
 --------------------------------------------------------------------------------
