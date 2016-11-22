@@ -6,8 +6,8 @@ resolver: lts-7.9
 # Local packages, usually specified by relative directory name
 packages:
 - lib/
-# - apps/maxclique
-# - apps/knapsack
+- apps/maxclique
+- apps/knapsack
 - apps/tsp
 - location:
     git: git@github.com:BlairArchibald/HdpH.git
