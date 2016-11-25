@@ -92,8 +92,8 @@ parseHdpHOpts args = do
 data NodeInfoEUC = NodeInfoEUC
   {
     nodeInfo_id :: Int
-  , nodeInfo_x  :: Float
-  , nodeInfo_y  :: Float
+  , nodeInfo_x  :: Double
+  , nodeInfo_y  :: Double
   } deriving (Show)
 
 instance Eq NodeInfoEUC where
@@ -140,6 +140,14 @@ buildDistanceMatrix nodes = array ((minId, minId), (maxId, maxId)) distances
 
         distanceBetween n1 n2 =
           let !d = calcDistanceEUC2D n1 n2 in ((nodeInfo_id n1, nodeInfo_id n2), d)
+
+printDistanceMatrixErrors :: DistanceMatrix -> IO ()
+printDistanceMatrixErrors dm =
+  let ((!m,_),(!n,_)) = bounds dm
+      coords = [(x,y) | x <- [m .. n], y <- [m .. n]]
+  in  forM_ coords $ \(x,y) ->
+        when (x /= y && dm ! (x,y) == 0) $
+          putStrLn $ "0 distance detected between: " ++ show x ++ " and " ++ show y
 
 -- Skeleton Functions
 -- SearchNode :: Sol, Bound, Space
@@ -435,9 +443,12 @@ main = do
   nodes <- readData $ testFile opts
   let dm = buildDistanceMatrix nodes
 
+  printDistanceMatrixErrors dm
+
   -- Must be added before the skeleton call to ensure that all nodes have access
   -- to the global data
   newIORef dm >>= addGlobalSearchSpaceToRegistry
+
 
   (res, tCompute) <- case skel opts of
     Ordered   -> do
