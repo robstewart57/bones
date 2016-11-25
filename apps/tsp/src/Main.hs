@@ -89,48 +89,69 @@ parseHdpHOpts args = do
     Right (conf, args') -> return (conf, args')
 
 -- Simple TSPLib Parser
-data NodeInfoEUC = NodeInfoEUC
+data NodeInfo = NodeInfo
   {
     nodeInfo_id :: Int
   , nodeInfo_x  :: Double
   , nodeInfo_y  :: Double
   } deriving (Show)
 
-instance Eq NodeInfoEUC where
+instance Eq NodeInfo where
   n1 == n2 = nodeInfo_id n1 == nodeInfo_id n2
 
-instance Ord NodeInfoEUC where
+instance Ord NodeInfo where
   compare n1 n2 = compare (nodeInfo_id n1) (nodeInfo_id n2)
 
-checkInputType :: [String] -> Bool
-checkInputType ls = any (=~ "EDGE_WEIGHT_TYPE\\s*:\\s*EUC_2D") ls
-                 || any (=~ "EDGE_WEIGHT_TYPE\\s*:\\s*GEO") ls
+data InputType = Invalid | EUC_2D | GEO
 
-parseCoords :: [String] -> [NodeInfoEUC]
+getInputType :: [String] -> InputType
+getInputType ls
+  | any (=~ "EDGE_WEIGHT_TYPE\\s*:\\s*EUC_2D") ls = EUC_2D
+  | any (=~ "EDGE_WEIGHT_TYPE\\s*:\\s*GEO") ls    = GEO
+  | otherwise = Invalid
+
+parseCoords :: [String] -> [NodeInfo]
 parseCoords ls = map parseNodeInfo $ coordData ls
   where
     coordData = takeWhile (\l -> not $ l =~ "EOF") . tail . dropWhile (\l -> not $ l =~ "NODE_COORD_SECTION")
     parseNodeInfo cd = case words cd of
-      [i,x,y] -> NodeInfoEUC (read i) (read x) (read y)
+      [i,x,y] -> NodeInfo (read i) (read x) (read y)
       x       -> error $ "Invalid point detected: " ++ show x
 
-calcDistanceEUC2D :: NodeInfoEUC -> NodeInfoEUC -> Int
-calcDistanceEUC2D (NodeInfoEUC _ x1 y1) (NodeInfoEUC _ x2 y2) = intSqrt $ (x1 - x2)^2 + (y1 - y2)^2
+calcDistanceEUC2D :: NodeInfo -> NodeInfo -> Int
+calcDistanceEUC2D (NodeInfo _ x1 y1) (NodeInfo _ x2 y2) = intSqrt $ (x1 - x2)^2 + (y1 - y2)^2
   where intSqrt = round . sqrt
 
-readData :: FilePath -> IO [NodeInfoEUC]
+calcDistanceGEO :: NodeInfo -> NodeInfo -> Int
+calcDistanceGEO n1 n2 =
+  let rrr = 6378.388
+      q1  = cos (getLon n1 - getLon n2)
+      q2  = cos (getLat n1 - getLat n2)
+      q3  = cos (getLat n1 + getLat n2)
+  in floor $ rrr * acos (0.5 * (( 1.0 + q1 ) * q2 - (1.0 - q1) * q3)) + 1.0
+  where
+      getLat (NodeInfo _ x _) = getLatLon x
+      getLon (NodeInfo _ _ y) = getLatLon y
+
+      getLatLon :: Double -> Double
+      getLatLon x =
+        let deg = fromIntegral (round x :: Int) :: Double
+            min = x - deg
+        in  pi * (deg + 5.0 * min / 3.0) / 180.0
+
+readData :: FilePath -> IO (InputType, [NodeInfo])
 readData fp = do
   ls <- readFile fp `catchIOError` const (error $ "Could not load file: " ++ fp)
-  let valid = checkInputType $ (lines ls)
-  if not valid
-    then error "Invalid input format. EDGE_WEIGHT_TYPE must be EUC_2D"
-    else return $ parseCoords (lines ls)
+  let inputType = getInputType $ lines ls
+  case inputType of
+    Invalid -> error "Invalid input format. EDGE_WEIGHT_TYPE must be EUC_2D or GEO"
+    _       -> return . (,) inputType $ parseCoords (lines ls)
 
 -- Distance Matrix
 type DistanceMatrix = UArray (Int, Int) Int
 
-buildDistanceMatrix :: [NodeInfoEUC] -> DistanceMatrix
-buildDistanceMatrix nodes = array ((minId, minId), (maxId, maxId)) distances
+buildDistanceMatrix :: InputType -> [NodeInfo] -> DistanceMatrix
+buildDistanceMatrix intype nodes = array ((minId, minId), (maxId, maxId)) distances
   where minId = nodeInfo_id $ minimum nodes
         maxId = nodeInfo_id $ maximum nodes
 
@@ -139,7 +160,11 @@ buildDistanceMatrix nodes = array ((minId, minId), (maxId, maxId)) distances
         getNodeDistances n = map (\other -> distanceBetween n other) nodes
 
         distanceBetween n1 n2 =
-          let !d = calcDistanceEUC2D n1 n2 in ((nodeInfo_id n1, nodeInfo_id n2), d)
+          let !d = case intype of
+                EUC_2D -> calcDistanceEUC2D n1 n2
+                GEO    -> calcDistanceGEO   n1 n2
+                _      -> 0
+          in ((nodeInfo_id n1, nodeInfo_id n2), d)
 
 printDistanceMatrixErrors :: DistanceMatrix -> IO ()
 printDistanceMatrixErrors dm =
@@ -440,8 +465,8 @@ main = do
   opts <- handleParseResult $ execParserPure defaultPrefs optsParser args'
   let depth = fromMaybe 0 (spawnDepth opts)
 
-  nodes <- readData $ testFile opts
-  let dm = buildDistanceMatrix nodes
+  (intype, nodes) <- readData $ testFile opts
+  let dm = buildDistanceMatrix intype nodes
 
   printDistanceMatrixErrors dm
 
