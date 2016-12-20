@@ -6,7 +6,7 @@ resolver: lts-7.14
 # Local packages, usually specified by relative directory name
 packages:
 - lib/
-# - apps/maxclique
+- apps/maxclique
 # - apps/knapsack
 - apps/tsp
 - location:

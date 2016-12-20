@@ -2,15 +2,19 @@
 
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeFamilies   #-}
 
 module Solvers.BonesSolver (
-    randomWSIntSet
-  , randomWSBitArray
-  , safeSkeletonIntSet
+  sequentialBones
+  --   randomWSIntSet
+  -- , randomWSBitArray
+  -- , safeSkeletonIntSet
   -- , safeSkeletonIntSetDynamic
-  , safeSkeletonBitSetArray
+  -- , safeSkeletonBitSetArray
   -- , findSolution
-  , declareStatic) where
+  -- , declareStatic
+  )
+where
 
 import           Control.Parallel.HdpH (Closure, Node, Par, StaticDecl,
                                         StaticToClosure, Thunk (Thunk),
@@ -40,10 +44,10 @@ import           GraphBitArray         (GraphArray, colourOrderBitSetArray, inte
 import           Clique                (Clique, emptyClique)
 import           System.IO.Unsafe      (unsafePerformIO)
 
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered      as Ordered
-import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
-                                                           , PruneType(..), ToCFns(..))
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered      as Ordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
+import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BranchAndBound(..), BBNode, PruneType(..), ToCFns(..))
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
@@ -57,6 +61,7 @@ instance ToClosure VertexSet where locToClosure = $(here)
 
 instance ToClosure (Int, IBitSetArray) where locToClosure = $(here)
 
+{-
 funcDictIS :: BAndBFunctions Graph ([Vertex], Int) Int VertexSet
 funcDictIS = BAndBFunctions orderedGeneratorIS pruningHeuristicIS cmpBnd
 
@@ -68,53 +73,68 @@ funcDictBS = BAndBFunctions orderedGeneratorBS pruningHeuristicBS cmpBnd
 
 closureDictBS :: ToCFns ([Vertex], Int) Int (Int,IBitSetArray)
 closureDictBS = ToCFns toClosureSol toClosureInt toClosureIBitSetArray toClosureMCNodeBS
+-}
 
 --------------------------------------------------------------------------------
 -- Max Clique Skeleton Functions
 --------------------------------------------------------------------------------
 
-type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
+data MaxClique
+type Solution = ([Vertex], Int)
+instance BranchAndBound MaxClique where
+  data Space MaxClique = Space Graph
+  data PartialSolution MaxClique = PartialSolution Solution
+  data Candidates MaxClique = Candidates VertexSet
+  data Bound MaxClique = Bound Int
+  orderedGenerator = orderedGeneratorIS
+  pruningHeuristic = pruningHeuristicIS
+  compareB (Bound x) (Bound y)
+    | x == y = EQ
+    | x < y  = GT
+    | x > y  = LT
+
+-- type MCNodeBS = (([Vertex], Int), Int, (Int, IBitSetArray))
 
 cmpBnd :: Int -> Int -> Ordering
 cmpBnd = compare
 
 -- BitSet
-orderedGeneratorBS :: (GraphArray, GraphArray) -> MCNodeBS -> Par [Par MCNodeBS]
-orderedGeneratorBS (g, gC) ((sol, cols), bnd, (szspace, space)) = do
-  (cs, space') <- io $ do
-    vs'    <- ArrayVertexSet.fromImmutable space
-    cs     <- colourOrderBitSetArray gC vs' szspace
-    space' <- ArrayVertexSet.fromImmutable space >>= ArrayVertexSet.copy
-    return (cs, space')
+-- orderedGeneratorBS :: Space MaxClique -> BBNode MaxClique -> Par [Par (BBNode MaxClique)]
+-- orderedGeneratorBS (Space (g, gC)) (PartialSolution (sol, cols), Bound bnd, Candidates (szspace, space)) = do
+--   (cs, space') <- io $ do
+--     vs'    <- ArrayVertexSet.fromImmutable space
+--     cs     <- colourOrderBitSetArray gC vs' szspace
+--     space' <- ArrayVertexSet.fromImmutable space >>= ArrayVertexSet.copy
+--     return (cs, space')
 
-  return $ map (accept g space') cs
+--   return $ map (accept g space') cs
 
-  where
-    accept g s (v, c) = do
+--   where
+--     accept g s (v, c) = do
 
-      -- Get space at next level
-      newRem <- io $ (calcNewRemaining s g v)
+--       -- Get space at next level
+--       newRem <- io $ (calcNewRemaining s g v)
 
-      io $ ArrayVertexSet.remove v s
+--       io $ ArrayVertexSet.remove v s
 
-      -- Remove 1 from the colour since we have effectively "accepted" one
-      -- potential set of vertices
-      return $ ((v:sol, c - 1), bnd + 1, newRem)
+--       -- Remove 1 from the colour since we have effectively "accepted" one
+--       -- potential set of vertices
+--       return $ (PartialSolution (v:sol, c - 1), Bound (bnd + 1), Candidates newRem)
 
-    calcNewRemaining s g v = do
-      vs'          <- ArrayVertexSet.copy s
-      (newVs, pc)  <- intersectAdjacency vs' g v
-      remain       <- ArrayVertexSet.makeImmutable newVs
-      return (pc, remain)
+--     calcNewRemaining s g v = do
+--       vs'          <- ArrayVertexSet.copy s
+--       (newVs, pc)  <- intersectAdjacency vs' g v
+--       remain       <- ArrayVertexSet.makeImmutable newVs
+--       return (pc, remain)
 
-pruningHeuristicBS :: (GraphArray, GraphArray) -> MCNodeBS -> Par Int
-pruningHeuristicBS _ ((sol, cols), lbnd, _) = return $ lbnd + cols
+-- pruningHeuristicBS :: Space MaxClique -> BBNode MaxClique -> Par (Bound MaxClique)
+-- pruningHeuristicBS _ (PartialSolution (sol, cols), Bound lbnd, _) = return $ Bound (lbnd + cols)
 
 -- IntSet
-type MCNodeIS = (([Vertex], Int), Int, VertexSet)
+-- type MCNodeIS = (([Vertex], Int), Int, VertexSet)
 
-orderedGeneratorIS :: Graph -> MCNodeIS -> Par [Par MCNodeIS]
-orderedGeneratorIS g ((sol, cols), bnd, vs) = do
+orderedGeneratorIS :: Space MaxClique -> BBNode MaxClique -> Par [Par (BBNode MaxClique)]
+orderedGeneratorIS (Space g) (PartialSolution (sol, cols), Bound bnd, Candidates vs) = do
   let sols = colourOrder g vs
       cs   = tail $ scanl (\acc (v, c) -> VertexSet.delete v acc) vs sols
 
@@ -122,16 +142,28 @@ orderedGeneratorIS g ((sol, cols), bnd, vs) = do
 
   where accept graph space (v, c) = do
           let space' = VertexSet.intersection space (adjacentG graph v)
-          return ((v : sol, c - 1), bnd + 1, space')
+          return (PartialSolution (v : sol, c - 1), Bound (bnd + 1), Candidates space')
 
-pruningHeuristicIS :: Graph -> MCNodeIS -> Par Int
-pruningHeuristicIS _ ((sol, cols), lbnd, _) = return $ lbnd + cols
+pruningHeuristicIS :: Space MaxClique -> BBNode MaxClique -> Par (Bound MaxClique)
+pruningHeuristicIS _ (PartialSolution (sol, cols), Bound lbnd, _) = return $ Bound $ lbnd + cols
 
 
 --------------------------------------------------------------------------------
 -- Calling functions
 --------------------------------------------------------------------------------
 
+sequentialBones :: Graph -> Par Clique
+sequentialBones graph = do
+  PartialSolution (vs, _) <- Sequential.search
+        True
+        (PartialSolution ([], 0), Bound 0, Candidates $ VertexSet.fromAscList $ verticesG graph)
+        (Space graph)
+        -- $(mkClosure [| funcDictIS |])
+        -- $(mkClosure [| closureDictIS |])
+
+  return (vs, length vs)
+
+{-
 randomWSIntSet :: Graph -> Int -> Par Clique
 randomWSIntSet g depth = do
   (vs, _) <- Unordered.search
@@ -191,10 +223,12 @@ safeSkeletonBitSetArray nVertices depth diversify = do
           s <- ArrayVertexSet.new nVertices
           forM_ [0 .. nVertices - 1] (`ArrayVertexSet.insert` s)
           return s
+-}
 
 --------------------------------------------------------------------------------
 -- Explicit ToClousre Instances (needed for performance)
 --------------------------------------------------------------------------------
+{-
 toClosureInt :: Int -> Closure Int
 toClosureInt x = $(mkClosure [| toClosureInt_abs x |])
 
@@ -249,3 +283,4 @@ declareStatic = mconcat
   , declare $(static 'toClosureMCNodeIS_abs)
   , declare $(static 'toClosureIBitSetArray_abs)
   ]
+-}

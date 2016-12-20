@@ -44,12 +44,14 @@ import           GraphBitArray
 import           Solvers.SequentialSolver (sequentialMaxClique)
 import           Solvers.SequentialSolverBitSetArray (sequentialBitSetArrayMaxClique)
 import           Solvers.SequentialSolverBBMC (sequentialMaxCliqueBBMC)
-import           Solvers.BonesSolver ({- findSolution, -} randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
-                                      {- safeSkeletonIntSetDynamic, -} safeSkeletonBitSetArray)
-import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
+import           Solvers.BonesSolver ({- findSolution, -} sequentialBones
+                                       {- randomWSIntSet, randomWSBitArray, safeSkeletonIntSet,
+                                          safeSkeletonIntSetDynamic, safeSkeletonBitSetArray -} )
+-- import qualified Solvers.BonesSolver as BonesSolver (declareStatic)
 
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 --------------------------------------------------------------------------------
@@ -186,14 +188,14 @@ parseHdpHOpts args = do
         Just s  -> return (conf, read s, args')
         Nothing -> return (conf, 0,      arg':args')
 
-$(return []) -- Bring all types into scope for TH.
+-- $(return []) -- Bring all types into scope for TH.
 
-declareStatic :: StaticDecl
-declareStatic = mconcat
-  [
-    HdpH.declareStatic
-  , BonesSolver.declareStatic
-  ]
+-- declareStatic :: StaticDecl
+-- declareStatic = mconcat
+--   [
+--     HdpH.declareStatic
+--   , BonesSolver.declareStatic
+--   ]
 --------------------------------------------------------------------------------
 -- Main
 --------------------------------------------------------------------------------
@@ -246,6 +248,9 @@ main = do
 
   -- Run (and time) the max clique algorithm
   (res, t_compute) <- case algorithm of
+    Sequential ->
+      timeIOS $ evaluate =<< runParIO conf (sequentialBones bigG)
+{-
     Sequential -> timeIOS $ do
         let (bigCstar', !calls') = sequentialMaxClique bigG
         evaluate (rnf bigCstar')
@@ -290,6 +295,7 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSet bigG depth' discrepancySearch)
+-}
   {-
     OrderedSkeletonIntSetDynamic -> do
       register (Main.declareStatic <> Ordered.declareStatic)
@@ -304,7 +310,6 @@ main = do
       if ntasks == 0
         then error "Must provide the NumDynamicTasks (-t) argument when using dynamic work generation"
         else timeIOS $ evaluate =<< runParIO conf (safeSkeletonIntSetDynamic bigG depth' ntasks)
-   -}
     OrderedBBMC -> do
       register (Main.declareStatic <> Ordered.declareStatic)
 
@@ -318,6 +323,7 @@ main = do
 
       let depth' = fromMaybe 0 depth
       timeIOS $ evaluate =<< runParIO conf (safeSkeletonBitSetArray n depth' discrepancySearch)
+   -}
     {-
     FindSolution -> do
       solSize' <- case solSize of
