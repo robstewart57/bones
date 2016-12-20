@@ -88,7 +88,12 @@ instance BranchAndBound MaxClique where
   data Bound MaxClique = Bound Int
   orderedGenerator = orderedGeneratorIS
   pruningHeuristic = pruningHeuristicIS
-  compareB (Bound x) (Bound y)
+
+instance Eq (Bound MaxClique) where
+  (==) (Bound x) (Bound y) = x == y
+
+instance Ord (Bound MaxClique) where
+  compare (Bound x) (Bound y)
     | x == y = EQ
     | x < y  = GT
     | x > y  = LT

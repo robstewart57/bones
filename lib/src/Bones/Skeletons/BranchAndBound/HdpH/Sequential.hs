@@ -38,10 +38,10 @@ expand pl space root boundKey' solutionKey' = do
       n' <- n
       lbnd <- pruningHeuristic space n'
       let gbnd = boundKey
-      case compareB lbnd gbnd of
+      case compare lbnd gbnd of
         GT -> do
            let (newBound,newSol) =
-                 if (compareB (bound n') gbnd == GT)
+                 if (compare (bound n') gbnd == GT)
                  then updateLocalBoundAndSol n' boundKey solutionKey
                  else (boundKey,solutionKey)
            (newSol',newBound') <- go1 n' newBound newSol
@@ -61,7 +61,7 @@ updateLocalBoundAndSol
   -> (Bound g, (PartialSolution g, Bound g))
 updateLocalBoundAndSol n@(sol, bnd, _) boundKey prev@(_,b) =
   -- Bnd
-  let newBound = if compareB (bound n) boundKey == GT then bnd else boundKey
+  let newBound = if compare (bound n) boundKey == GT then bnd else boundKey
   -- Sol
-      newSolution = if compareB (bound n) b == GT then (sol,bnd) else prev
+      newSolution = if compare (bound n) b == GT then (sol,bnd) else prev
   in (newBound,newSolution)

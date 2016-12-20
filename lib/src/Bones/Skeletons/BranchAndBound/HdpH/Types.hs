@@ -14,14 +14,13 @@ import           Control.Parallel.HdpH (Closure, Par, StaticDecl,
 import           GHC.Generics          (Generic)
 
 type BBNode g = (PartialSolution g, Bound g, Candidates g)
-class BranchAndBound g where
+class Ord (Bound g) => BranchAndBound g where
   data Space g
   data PartialSolution g
   data Candidates g
   data Bound g
   orderedGenerator :: Space g -> BBNode g -> Par [Par (BBNode g)]
   pruningHeuristic :: Space g -> BBNode g -> Par (Bound g)
-  compareB :: Bound g -> Bound g -> Ordering
 
 bound :: BBNode g -> Bound g
 bound (_, b, _) = b

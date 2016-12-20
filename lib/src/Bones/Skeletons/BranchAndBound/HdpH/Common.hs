@@ -57,7 +57,7 @@ updateLocalBound bnd = do
   let n = (undefined, bnd, undefined)
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
-    if compareB {- fs -} (bound n) b == GT then (bnd, ()) else (b, ())
+    if compare (bound n) b == GT then (bnd, ()) else (b, ())
 
 updateLocalBoundT :: BranchAndBound g
                   => ((Closure (Bound g)), Closure g)
@@ -92,7 +92,7 @@ updateParentBoundT ((s, bnd), fns) = Thunk $ do
   let n = (unClosure s, unClosure bnd, undefined)
   ref     <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if compareB {- (unClosure fns) -} (bound n) b == GT
+                if compare (bound n) b == GT
                     then ((s, unClosure bnd), True)
                     else (prev              , False)
 
@@ -134,9 +134,9 @@ expandSequential pl parent n' space fs fsl toC = expand n'
         node@(sol, bndl, _) <- n
 
         lbnd <- pruningHeuristic {- fsl -} space node
-        case compareB {- fsl -} lbnd gbnd of
+        case compare lbnd gbnd of
           GT -> do
-            when (compareB {- fsl -} (bound node) gbnd == GT) $ do
+            when (compare (bound node) gbnd == GT) $ do
                 let cSol = toCa toC sol
                     cBnd = toCb toC bndl
                 updateLocalBound bndl {- (unClosure fs) -}

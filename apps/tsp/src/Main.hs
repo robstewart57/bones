@@ -358,7 +358,12 @@ instance BranchAndBound TSP where
   data Bound TSP = Bound Int
   orderedGenerator = orderedGeneratorTSP
   pruningHeuristic = pruningHeuristicTSP
-  compareB (Bound x) (Bound y)
+
+instance Eq (Bound TSP) where
+  (==) (Bound x) (Bound y) = x == y
+
+instance Ord (Bound TSP) where
+  compare (Bound x) (Bound y)
     | x == y = EQ
     | x < y  = GT
     | x > y  = LT
