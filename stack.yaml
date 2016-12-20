@@ -7,7 +7,7 @@ resolver: lts-7.14
 packages:
 - lib/
 - apps/maxclique
-# - apps/knapsack
+- apps/knapsack
 - apps/tsp
 - location:
     git: git@github.com:BlairArchibald/HdpH.git

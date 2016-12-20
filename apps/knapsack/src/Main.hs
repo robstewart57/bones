@@ -28,8 +28,9 @@ import Text.ParserCombinators.Parsec (GenParser, parse, many1, many, eof, spaces
 import qualified Knapsack as KL
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry (addGlobalSearchSpaceToRegistry)
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
 
 -- Simple program to solve Knapsack instances using the bones skeleton library.
 
@@ -187,9 +188,10 @@ main = do
 
   -- Initialise global data on each node
   let its = createGlobalArrays items'
-  newIORef its >>= addGlobalSearchSpaceToRegistry
+  -- newIORef its >>= addGlobalSearchSpaceToRegistry
 
   (s, tm) <- case alg of
+{-
     Ordered -> do
       register $ HdpH.declareStatic <> KL.declareStatic <> Ordered.declareStatic
       (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonOrdered items' cap depth' True)
@@ -205,10 +207,10 @@ main = do
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ _ is prof weig) ->
               return (Just (is, prof, weig), t)
-
+-}
     Sequential -> do
-      register $ HdpH.declareStatic
-      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential items' cap)
+      -- register $ HdpH.declareStatic
+      (sol, t) <- timeIOS $ evaluate =<< runParIO conf (KL.skeletonSequential items' cap its)
       case sol of
             Nothing -> return (Nothing, t)
             Just (KL.Solution _ _ is prof weig) ->

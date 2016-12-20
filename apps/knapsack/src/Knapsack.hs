@@ -2,24 +2,25 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Knapsack
 (
-    skeletonOrdered
-  , skeletonUnordered
-  , skeletonSequential
-  , declareStatic
+  --   skeletonOrdered
+  -- , skeletonUnordered
+    skeletonSequential
+  -- , declareStatic
   , Solution(..)
 ) where
 
 import Control.Parallel.HdpH hiding (declareStatic)
 
-import Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
+import Bones.Skeletons.BranchAndBound.HdpH.Types ( BranchAndBound(..), BBNode
                                                  , PruneType(..), ToCFns(..))
 
 import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
 import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
 
 import Control.DeepSeq (NFData)
@@ -37,11 +38,12 @@ import Data.Array.Unboxed
 data Solution = Solution !Int !Int ![Item] !Int !Int deriving (Generic, Show)
 type Item = Int
 
-type Space = (Array Int Int, Array Int Int)
+type SpaceKnapsack = (Array Int Int, Array Int Int)
 
 instance Serialize Solution where
 instance NFData Solution where
 
+{-
 cmpBnd :: Int -> Int -> Ordering
 cmpBnd = compare
 
@@ -50,7 +52,9 @@ funcDict = BAndBFunctions orderedGenerator pruningHeuristic cmpBnd
 
 closureDict :: ToCFns Solution Int [Item]
 closureDict = ToCFns toClosureSolution toClosureInt toClosureItemList toClosureKPNode
+-}
 
+{-
 skeletonOrdered :: [(Int, Int, Int)] -> Int -> Int -> Bool -> Par Solution
 skeletonOrdered items capacity depth diversify =
   Ordered.search
@@ -76,6 +80,15 @@ skeletonSequential items capacity =
     True
     (Solution (length items) capacity [] 0 0, 0, map (\(a,b,c) -> a) items)
     (BAndBFunctions orderedGenerator pruningHeuristic cmpBnd)
+-}
+
+skeletonSequential :: [(Int, Int, Int)] -> Int -> SpaceKnapsack -> Par Solution
+skeletonSequential items capacity space = do
+  PartialSolution sol <- Sequential.search
+    True
+    (PartialSolution (Solution (length items) capacity [] 0 0), Bound 0, Candidates $ map (\(a,b,c) -> a) items)
+    (Space space)
+  return sol
 
 --------------------------------------------------------------------------------
 -- Skeleton Functions
@@ -90,8 +103,8 @@ skeletonSequential items capacity =
 
 -- Potential choices is simply the list of un-chosen items
 
-generateChoices :: Space -> Solution -> [Item] -> Par [Item]
-generateChoices (_, weights) (Solution _ cap _ _ curWeight) remaining =
+generateChoices :: Space Knapsack -> Solution -> [Item] -> Par [Item]
+generateChoices (Space (_, weights)) (Solution _ cap _ _ curWeight) remaining =
   return $ filter (\i -> curWeight + fromIntegral (weights ! i) <= cap) remaining
 
 -- Calculate the bounds function
@@ -136,21 +149,39 @@ removeChoice i its = return $ delete i its
 -- Skeleton Functions
 --------------------------------------------------------------------------------
 
-type KPNode = (Solution, Int, [Int])
+data Knapsack = Knapsack
+instance BranchAndBound Knapsack where
+  data Space Knapsack = Space SpaceKnapsack
+  data PartialSolution Knapsack = PartialSolution Solution
+  data Candidates Knapsack = Candidates [Int]
+  data Bound Knapsack = Bound Int
+  orderedGenerator = orderedGeneratorKnapsack
+  pruningHeuristic = pruningHeuristicKnapsack
 
-orderedGenerator :: Space -> KPNode -> Par [Par KPNode]
-orderedGenerator (profits, weights) (Solution mix cap is solP solW, bnd, remaining) = do
+instance Eq (Bound Knapsack) where
+  (==) (Bound x) (Bound y) = x == y
+
+instance Ord (Bound Knapsack) where
+  compare (Bound x) (Bound y)
+    | x == y = EQ
+    | x < y  = GT
+    | x > y  = LT
+
+-- type KPNode = (Solution, Int, [Int])
+
+orderedGeneratorKnapsack :: Space Knapsack -> BBNode Knapsack -> Par [Par (BBNode Knapsack)]
+orderedGeneratorKnapsack (Space (profits, weights)) (PartialSolution (Solution mix cap is solP solW), Bound bnd, Candidates remaining) = do
   let items = filter (\i -> solW + fromIntegral (weights ! i) <= cap) remaining
 
-  return $ map (\i -> return (Solution mix cap (i:is) (solP + (profits ! i)) (solW + (weights ! i)),
-                              solP + (profits ! i),
-                              delete i remaining)) items
+  return $ map (\i -> return (PartialSolution (Solution mix cap (i:is) (solP + (profits ! i)) (solW + (weights ! i))),
+                              Bound (solP + (profits ! i)),
+                              Candidates (delete i remaining))) items
 
 -- May prune level
-pruningHeuristic :: Space -> KPNode -> Par Int
-pruningHeuristic (profits, weights) (Solution mix cap (i:is) solP solW, _, _) = do
+pruningHeuristicKnapsack :: Space Knapsack -> BBNode Knapsack -> Par (Bound Knapsack)
+pruningHeuristicKnapsack (Space (profits, weights)) (PartialSolution (Solution mix cap (i:is) solP solW), _, _) = do
   -- Profits/weights already in solution for i so don't add them again does this work for i = 0?
-  return $ round $ ub profits weights solP solW (i + 1)
+  return $ Bound $ round $ ub profits weights solP solW (i + 1)
 
   where
     -- TODO: Scope capturing function
@@ -163,12 +194,13 @@ pruningHeuristic (profits, weights) (Solution mix cap (i:is) solP solW, _, _) = 
     divd :: Int -> Int -> Double
     divd a b = fromIntegral a / fromIntegral b
 
-strengthen :: KPNode -> Int -> Bool
-strengthen (_, lbnd, _) gbnd = lbnd > gbnd
+strengthen :: BBNode Knapsack -> Int -> Bool
+strengthen (_, Bound lbnd, _) gbnd = lbnd > gbnd
 
 --------------------------------------------------------------------------------
 -- Explicit ToClousre Instances (needed for performance)
 --------------------------------------------------------------------------------
+{-
 toClosureItem :: Item -> Closure Item
 toClosureItem x = $(mkClosure [| toClosureItem_abs x |])
 
@@ -221,3 +253,4 @@ declareStatic = mconcat
   , declare $(static 'toClosureSolution_abs)
   , declare $(static 'toClosureKPNode_abs)
   ]
+-}
