@@ -17,10 +17,10 @@ library
   hs-source-dirs:      src/
   exposed-modules:     Bones.Skeletons.BranchAndBound.HdpH.Common
                        Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
-                       Bones.Skeletons.BranchAndBound.HdpH.Ordered
+--                       Bones.Skeletons.BranchAndBound.HdpH.Ordered
                        Bones.Skeletons.BranchAndBound.HdpH.Sequential
                        Bones.Skeletons.BranchAndBound.HdpH.Types
-                       Bones.Skeletons.BranchAndBound.HdpH.Unordered
+--                       Bones.Skeletons.BranchAndBound.HdpH.Unordered
                        Bones.Skeletons.BranchAndBound.HdpH.Util
   build-depends:         base       >= 4.7 && < 5
                        , array      >= 0.5.1 && < 0.6

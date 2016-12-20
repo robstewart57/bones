@@ -1,5 +1,4 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE BangPatterns    #-}
 
 module Bones.Skeletons.BranchAndBound.HdpH.Ordered
   (
@@ -30,7 +29,7 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Util (scanM)
 --------------------------------------------------------------------------------
 
 -- | Type representing all information required for a task including coordination variables
-data Task a b s = Task
+data Task g = Task
   {
     priority  :: Int
     -- ^ Discrepancy based task priority
@@ -41,7 +40,7 @@ data Task a b s = Task
   , resultG   :: GIVar (Closure ())
   , comp      :: Closure (Par (Closure ()))
     -- ^ The search computation to run (already initialised with variables)
-  , node      :: BBNode a b s
+  , node      :: BBNode g
   }
 
 --------------------------------------------------------------------------------
@@ -54,13 +53,14 @@ data Task a b s = Task
 -- (1) Never slower than a sequential run of the same skeleton
 -- (2) Adding more workers does not slow down the computation
 -- (3) Results should have low variance allowing them to be reproducible
-search :: Bool                            -- ^ Should discrepancy search be used? Else spawn tasks linearly, left to right.
+search :: BranchAndBound g
+       => Bool                            -- ^ Should discrepancy search be used? Else spawn tasks linearly, left to right.
        -> Bool                            -- ^ Enable PruneLevel Optimisation
        -> Int                             -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
-       -> BBNode a b s                    -- ^ Initial root search node
-       -> Closure (BAndBFunctions g a b s)  -- ^ Higher order B&B functions
-       -> Closure (ToCFns a b s)          -- ^ Explicit toClosure instances
-       -> Par a                           -- ^ The resulting solution after the search completes
+       -> BBNode g                        -- ^ Initial root search node
+       -> Closure g  -- ^ Higher order B&B functions
+       -> Closure (ToCFns (PartialSolution g) (Bound g) (Candidates g))          -- ^ Explicit toClosure instances
+       -> Par (PartialSolution a)                           -- ^ The resulting solution after the search completes
 search pl diversify spawnDepth root fs toC = do
   master <- myNode
   nodes  <- allNodes
@@ -128,19 +128,20 @@ runAndFill (clo, gv) = Thunk $ unClosure clo >>= rput gv
 -- | Construct tasks to given depth in the tree. Assigned priorities in a
 --   discrepancy search manner (which can later be ignored if required). This
 --   function is essentially where the key scheduling decisions happen.
-createTasksToDepth :: Bool
+createTasksToDepth :: BranchAndBound g
+                   => Bool
                    -- ^ Enable pruneLevel optimisation
                    -> Node
                    -- ^ The master node which stores the global bound
                    -> Int
                    -- ^ Depth to spawn to. Depth = 0 implies top level only.
-                   -> BBNode a b s
+                   -> BBNode g
                    -- ^ Starting node to branch from
-                   -> Closure (BAndBFunctions g a b s)
+                   -> Closure g
                    -- ^ Higher Order B&B functions
-                   -> Closure (ToCFns a b s)
+                   -> Closure (ToCFns (PartialSolution g) (Bound g) (Candidates g))
                    -- ^ Explicit toClosure instances
-                   -> Par [Task a b s]
+                   -> Par [Task g]
 createTasksToDepth pl master depth root fsC toC' =
   go depth 1 0 root (unClosure fsC) (unClosure toC')
   where
@@ -194,13 +195,13 @@ spinGet v = do
 
 -- | Main task function. Checks if the sequential thread has already started
 --   working on this branch. If it hasn't start searching the subtree.
-safeBranchAndBoundSkeletonChildTask ::
+safeBranchAndBoundSkeletonChildTask :: BranchAndBound g =>
     ( GIVar (Closure ())
     , Node
     , Bool
-    , Closure (BBNode a b s)
-    , Closure (BAndBFunctions g a b s)
-    , Closure (ToCFns a b s))
+    , Closure (BBNode g)
+    , Closure g
+    , Closure (ToCFns (PartialSolution g) (Bound g) (Candidates g)))
     -- TODO: Do I really need closures here? I guess to write into the IVar
     -> Thunk (Par (Closure ()))
 safeBranchAndBoundSkeletonChildTask (taken, parent, pl, n, fsC, toC) =
@@ -217,13 +218,13 @@ safeBranchAndBoundSkeletonChildTask (taken, parent, pl, n, fsC, toC) =
       else
         return toClosureUnit
 
-safeBranchAndBoundSkeletonChild ::
-       Bool
+safeBranchAndBoundSkeletonChild :: BranchAndBound g
+    => Bool
     -> Node
-    -> BBNode a b s
-    -> Closure (BAndBFunctions g a b s)
-    -> BAndBFunctions g a b s
-    -> ToCFns a b s
+    -> BBNode g
+    -> Closure g
+    -> g
+    -> ToCFns (PartialSolution g) (Bound g) (Candidates g)
     -> Par (Closure ())
 safeBranchAndBoundSkeletonChild pl parent n fsC fsl toCL = do
     gbnd  <- io $ readFromRegistry boundKey

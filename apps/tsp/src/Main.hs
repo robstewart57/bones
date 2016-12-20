@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -7,10 +8,11 @@
 
 module Main where
 
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
-import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
-import           Bones.Skeletons.BranchAndBound.HdpH.Types ( BAndBFunctions(BAndBFunctions)
-                                                           , PruneType(..), ToCFns(..))
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Ordered as Ordered
+-- import qualified Bones.Skeletons.BranchAndBound.HdpH.Unordered as Unordered
+import qualified Bones.Skeletons.BranchAndBound.HdpH.Sequential as Sequential
+import           Bones.Skeletons.BranchAndBound.HdpH.Types ( PruneType(..), ToCFns(..)
+                                                          , BranchAndBound(..),BBNode)
 import           Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 import           Control.Exception        (evaluate)
@@ -47,7 +49,7 @@ import System.IO.Error (catchIOError)
 
 import Text.Regex.Posix
 
-data Skeleton = Ordered | Unordered deriving (Read, Show)
+data Skeleton = Ordered | Unordered | Sequential deriving (Read, Show)
 
 data Options = Options
   { skel       :: Skeleton
@@ -61,7 +63,7 @@ optionParser = Options
            <$> option auto (
                  long "skeleton"
               <> short 'a'
-              <> help "Skeleton to use (Ordered | Unordered )"
+              <> help "Skeleton to use (Ordered | Unordered | Sequential )"
               )
            <*> strOption (
                  long "testFile"
@@ -175,7 +177,6 @@ printDistanceMatrixErrors dm =
           putStrLn $ "0 distance detected between: " ++ show x ++ " and " ++ show y
 
 -- Skeleton Functions
--- SearchNode :: Sol, Bound, Space
 type Location = Int
 type Path     = Seq.Seq Location
 
@@ -192,7 +193,6 @@ unsafeLast path = case Seq.viewr path of
 
 type LocationSet = IntSet
 type Solution   = (Path, Int)
-type SearchNode = (Solution, Int, LocationSet)
 
 cmpBnd :: Int -> Int -> Ordering
 cmpBnd x y
@@ -201,13 +201,14 @@ cmpBnd x y
   | x >  y = LT
 
 -- Only update Bnd when we reach the root again
-orderedGenerator :: DistanceMatrix -> SearchNode -> Par [Par SearchNode]
-orderedGenerator distances ((path, pathL), lbnd, rem) = case Seq.viewl path of
-  Seq.EmptyL -> return $ map constructTopLevel (LocationSet.elems rem)
-  _          -> return $ map (constructNode distances) (LocationSet.elems rem)
+orderedGeneratorTSP :: Space TSP -> BBNode TSP -> Par [Par (BBNode TSP)]
+orderedGeneratorTSP (Space distances) (PartialSolution (path, pathL), Bound lbnd, (Candidates rem)) = do
+  case Seq.viewl path of
+    Seq.EmptyL -> return (map constructTopLevel (LocationSet.elems rem))
+    _          -> return (map (constructNode distances) (LocationSet.elems rem))
 
   where
-    constructNode :: DistanceMatrix -> Location -> Par SearchNode
+    constructNode :: DistanceMatrix -> Location -> Par (BBNode TSP)
     constructNode dist loc = do
       let newPath  = (path |> loc)
           newDist  = pathL + dist ! (unsafeLast path, loc)
@@ -217,14 +218,14 @@ orderedGenerator distances ((path, pathL), lbnd, rem) = case Seq.viewl path of
         True ->
           let newPath'  = (newPath |> unsafeFirst path)
               newDist'  = newDist + dist ! (unsafeLast newPath, unsafeFirst path)
-          in return ((newPath',newDist'), newDist', LocationSet.empty)
-        False -> return ((newPath,newDist), lbnd, newRem)
+          in return (PartialSolution (newPath',newDist'), Bound newDist', Candidates LocationSet.empty)
+        False -> return (PartialSolution (newPath,newDist), Bound lbnd, Candidates newRem)
 
-    constructTopLevel l = return ((Seq.singleton l, 0), lbnd, LocationSet.delete l rem)
+    constructTopLevel l = return (PartialSolution (Seq.singleton l, 0), Bound lbnd, Candidates (LocationSet.delete l rem))
 
-pruningHeuristic :: DistanceMatrix -> SearchNode -> Par Int
-pruningHeuristic dists ((!path, !pathL), b, rem) =
-  return $ pathL + weightMST dists (unsafeLast path) (LocationSet.insert (unsafeFirst path) rem)
+pruningHeuristicTSP :: Space TSP -> BBNode TSP -> Par (Bound TSP)
+pruningHeuristicTSP (Space dists) (PartialSolution (!path, !pathL), Bound b, Candidates rem) =
+  return $ Bound $ pathL + weightMST dists (unsafeLast path) (LocationSet.insert (unsafeFirst path) rem)
 
 
 lbSimple :: [Location] -> [Location] -> DistanceMatrix -> Int
@@ -249,8 +250,8 @@ lbSimple path rem dists
       | dists ! (n,m) < l2 = (l1, dists ! (n,m))
       | otherwise = (l1,l2)
 
-strengthen :: SearchNode -> Int -> Bool
-strengthen (_, lbnd, _) gbnd = lbnd < gbnd
+strengthen :: BBNode TSP -> Bound TSP -> Bool
+strengthen (_, (Bound lbnd), _) (Bound gbnd) = lbnd < gbnd
 
 
 -- TSP Utility functions
@@ -348,11 +349,33 @@ updateWeightMapPrim dists weight !v0 !v = do
     {-# INLINE withArray #-}
 {-# INLINE updateWeightMapPrim #-}
 
+data TSP = TSP
+
+instance BranchAndBound TSP where
+  data Space TSP = Space DistanceMatrix
+  data PartialSolution TSP = PartialSolution Solution
+  data Candidates TSP = Candidates LocationSet
+  data Bound TSP = Bound Int
+  orderedGenerator = orderedGeneratorTSP
+  pruningHeuristic = pruningHeuristicTSP
+  compareB (Bound x) (Bound y)
+    | x == y = EQ
+    | x < y  = GT
+    | x > y  = LT
+
+instance Show (Space TSP) where
+  show (Space dm) = show dm
+
+instance Show (Bound TSP) where
+  show (Bound b) = show b
+
+{-
 funcDict :: BAndBFunctions DistanceMatrix (Path,Int) Int LocationSet
 funcDict = BAndBFunctions orderedGenerator pruningHeuristic cmpBnd
 
 closureDict :: ToCFns (Path,Int) Int LocationSet
 closureDict = ToCFns toClosureSol toClosureInt toClosureLocationSet toClosureSearchNode
+-}
 
 -- Test Instances
 testInstance1 :: DistanceMatrix
@@ -362,7 +385,31 @@ testInstance1 = array ((1,1),(4,4))
                        ((3,1),4), ((3,2),4), ((3,3),0), ((3,4),2),
                        ((4,1),2), ((4,2),2), ((4,3),2), ((4,4),0)]
 
+
+sequentialSearch :: DistanceMatrix -> Int -> Par Path
+sequentialSearch distances !depth = do
+
+  let allLocs = [1 .. (fst . snd $ bounds distances)]
+      greedy  = greedyNN distances allLocs
+
+      partialSol :: PartialSolution TSP
+      partialSol = PartialSolution (Seq.singleton 1, 0)
+
+      bound :: Bound TSP
+      bound = Bound $ pathLength distances greedy
+
+      candidates :: Candidates TSP
+      candidates = Candidates $ LocationSet.delete 1 $ LocationSet.fromList allLocs
+
+      bbNode :: BBNode TSP
+      bbNode = (partialSol, bound, candidates)
+
+  PartialSolution (path,_) <- Sequential.search False bbNode (Space distances)
+
+  return path
+
 -- Other closury stuff
+{-
 orderedSearch :: DistanceMatrix -> Int -> Bool -> Par Path
 orderedSearch distances !depth !dds = do
 
@@ -393,7 +440,9 @@ unorderedSearch distances !depth = do
       ($(mkClosure [| closureDict |]))
 
   return path
+-}
 
+{-
 -- Explicit toClosure Instances for performance
 toClosureInt :: Int -> Closure Int
 toClosureInt x = $(mkClosure [| toClosureInt_abs x |])
@@ -436,6 +485,7 @@ declareStatic = mconcat
   , declare $(static 'toClosureLocationSet_abs)
   , declare $(static 'toClosureSearchNode_abs)
   ]
+-}
 
 --------------------------------------------------------------------------------
 -- Timing Functions
@@ -474,14 +524,15 @@ main = do
   -- to the global data
   newIORef dm >>= addGlobalSearchSpaceToRegistry
 
-
   (res, tCompute) <- case skel opts of
-    Ordered   -> do
-      register $ Main.declareStatic <> Ordered.declareStatic
-      timeIOs $ evaluate =<< runParIO conf (orderedSearch dm depth (dds opts))
-    Unordered -> do
-      register $ Main.declareStatic <> Unordered.declareStatic
-      timeIOs $ evaluate =<< runParIO conf (unorderedSearch dm depth)
+    -- Ordered   -> do
+    --   register $ Main.declareStatic <> Ordered.declareStatic
+    --   timeIOs $ evaluate =<< runParIO conf (orderedSearch dm depth (dds opts))
+    -- Unordered -> do
+    --   register $ Main.declareStatic <> Unordered.declareStatic
+    --   timeIOs $ evaluate =<< runParIO conf (unorderedSearch dm depth)
+    Sequential -> do
+      timeIOs $ evaluate =<< runParIO conf (sequentialSearch dm depth)
 
   case res of
     Nothing -> return ()

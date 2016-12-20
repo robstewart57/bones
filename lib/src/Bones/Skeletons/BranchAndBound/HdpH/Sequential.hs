@@ -1,3 +1,7 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 -- Sequential Branch and Bound Skeleton. Makes use of HdpH features and a global
 -- repository for storing the solutions. Useful for assessing the overheads of parallelism.
 module Bones.Skeletons.BranchAndBound.HdpH.Sequential
@@ -7,56 +11,57 @@ module Bones.Skeletons.BranchAndBound.HdpH.Sequential
 
 import Control.Parallel.HdpH
 
-import Control.Monad (when, unless)
-import Data.IORef (atomicModifyIORef')
+-- import Control.Monad (when, unless)
+-- import Data.IORef (atomicModifyIORef')
 
 import Bones.Skeletons.BranchAndBound.HdpH.Types
-import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
+-- import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 
 -- Assumes any global space state is already initialised
-search :: Bool -> BBNode a b s -> BAndBFunctions g a b s -> Par a
-search pl root@(ssol, sbnd, _) fns = do
-  io $ addToRegistry solutionKey (ssol, sbnd)
-  io $ addToRegistry boundKey sbnd
-  space <- io $ getGlobalSearchSpace
-  expand pl space root fns
-  io $ fst <$> readFromRegistry solutionKey
+search :: (BranchAndBound g) => Bool -> BBNode g -> Space g -> {- g ->-}  Par (PartialSolution g)
+search pl root@(ssol, sbnd, _) space = do
+  let solutionKey = (ssol,sbnd)
+      boundKey    = sbnd
+  (finalSolution,_) <- expand pl space root boundKey solutionKey
+  return finalSolution
 
-expand :: Bool -> g -> BBNode a b s -> BAndBFunctions g a b s -> Par ()
-expand pl space root fns = go1 root
+expand :: (BranchAndBound g) => Bool -> Space g -> BBNode g -> Bound g -> (PartialSolution g,Bound g) -> Par (PartialSolution g,Bound g)
+expand pl space root boundKey' solutionKey' = do
+  (sol,_) <- go1 root boundKey' solutionKey'
+  return sol
   where
-    go1 n = orderedGenerator fns space n >>= go
+    go1 n bKey sKey = orderedGenerator space n >>= \ns -> go ns bKey sKey
 
-    go [] = return ()
+    go [] bKey sol = return (sol,bKey)
 
-    go (n:ns) = do
-      gbnd <- io $ readFromRegistry boundKey
-
-      -- Manually force evaluation (used to avoid fully evaluating the node list
-      -- if it's not needed)
+    go (n:ns) boundKey solutionKey = do
       n' <- n
-
-      lbnd <- pruningHeuristic fns space n'
-      case compareB fns lbnd gbnd of
+      lbnd <- pruningHeuristic space n'
+      let gbnd = boundKey
+      case compareB lbnd gbnd of
         GT -> do
-         when (compareB fns (bound n') gbnd == GT) (updateLocalBoundAndSol n' fns)
-         go1 n' >> go ns
-        _  -> unless pl $ go ns
+           let (newBound,newSol) =
+                 if (compareB (bound n') gbnd == GT)
+                 then updateLocalBoundAndSol n' boundKey solutionKey
+                 else (boundKey,solutionKey)
+           (newSol',newBound') <- go1 n' newBound newSol
+           go ns newBound' newSol'
+        _  ->
+          if pl
+          then return (solutionKey,boundKey)
+          else go ns boundKey solutionKey
 
 -- Technically we don't need atomic modify when we are sequential but this
 -- keeps us closer to the parallel version.
-updateLocalBoundAndSol :: BBNode a b s -> BAndBFunctions g a b s -> Par ()
-updateLocalBoundAndSol n@(sol, bnd, _) fns = do
+updateLocalBoundAndSol
+  :: BranchAndBound g
+  => BBNode g
+  -> Bound g
+  -> (PartialSolution g, Bound g)
+  -> (Bound g, (PartialSolution g, Bound g))
+updateLocalBoundAndSol n@(sol, bnd, _) boundKey prev@(_,b) =
   -- Bnd
-  bndRef <- io $ getRefFromRegistry boundKey
-  io $ atomicModifyIORef' bndRef $ \b ->
-    if compareB fns (bound n) b == GT then (bnd, ()) else (b, ())
-
+  let newBound = if compareB (bound n) boundKey == GT then bnd else boundKey
   -- Sol
-  solRef <- io $ getRefFromRegistry solutionKey
-  _ <- io $ atomicModifyIORef' solRef $ \prev@(_,b) ->
-        if compareB fns (bound n) b == GT
-            then ((sol, bnd), True)
-            else (prev, False)
-
-  return ()
+      newSolution = if compareB (bound n) b == GT then (sol,bnd) else prev
+  in (newBound,newSolution)

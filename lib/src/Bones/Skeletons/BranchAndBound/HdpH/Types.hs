@@ -1,6 +1,10 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Bones.Skeletons.BranchAndBound.HdpH.Types where
 
@@ -9,24 +13,31 @@ import           Control.Parallel.HdpH (Closure, Par, StaticDecl,
 
 import           GHC.Generics          (Generic)
 
--- Functions required to specify a B&B computation
-type BBNode a b s = (a, b, s)
+type BBNode g = (PartialSolution g, Bound g, Candidates g)
+class BranchAndBound g where
+  data Space g
+  data PartialSolution g
+  data Candidates g
+  data Bound g
+  orderedGenerator :: Space g -> BBNode g -> Par [Par (BBNode g)]
+  pruningHeuristic :: Space g -> BBNode g -> Par (Bound g)
+  compareB :: Bound g -> Bound g -> Ordering
 
-bound :: BBNode a b s -> b
+bound :: BBNode g -> Bound g
 bound (_, b, _) = b
 
-solution :: BBNode a b s -> a
+solution :: BBNode g -> PartialSolution g
 solution (s, _ , _ )= s
 
-candidates :: BBNode a b s -> s
+candidates :: BBNode g -> Candidates g
 candidates (_, _, s) = s
 
-data BAndBFunctions g a b s =
-  BAndBFunctions
-    { orderedGenerator :: g -> BBNode a b s -> Par [Par (BBNode a b s)]
-    , pruningHeuristic :: g -> BBNode a b s -> Par b
-    , compareB         :: b -> b -> Ordering
-    } deriving (Generic)
+-- data BAndBFunctions g a b s =
+--   BAndBFunctions
+--     { orderedGenerator :: g -> BBNode a b s -> Par [Par (BBNode a b s)]
+--     , pruningHeuristic :: g -> BBNode a b s -> Par b
+--     , compareB         :: b -> b -> Ordering
+--     } deriving (Generic)
 
 data ToCFns a b s =
   ToCFns

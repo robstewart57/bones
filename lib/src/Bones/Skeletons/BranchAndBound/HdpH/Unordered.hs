@@ -27,12 +27,12 @@ import           Bones.Skeletons.BranchAndBound.HdpH.Util
 
 -- | Perform a backtracking search using a skeleton with distributed work
 -- spawning. Makes no guarantees on task ordering.
-search ::
+search :: BranchAndBound g
           Bool                              -- ^ Enable pruneLevel optimisation
        -> Int                               -- ^ Depth in the tree to spawn to. 0 implies top level tasks.
-       -> BBNode a b s                      -- ^ Root Node
-       -> Closure (BAndBFunctions g a b s)    -- ^ Higher order B&B functions
-       -> Closure (ToCFns a b s)            -- ^ Explicit toClosure instances
+       -> BBNode g                      -- ^ Root Node
+       -> Closure g    -- ^ Higher order B&B functions
+       -> Closure (ToCFns (PartialSolution g) (Bound g) (Candidates g))          -- ^ Explicit toClosure instances
        -> Par a                             -- ^ The resulting solution after the search completes
 search pl depth root fs' toC = do
   master <- myNode
@@ -55,13 +55,13 @@ search pl depth root fs' toC = do
           let n' = toCnode (unClosure toC) n
           in $(mkClosure [| branchAndBoundChild (d, m, pl, n', fs', toC) |])
 
-branchAndBoundChild ::
+branchAndBoundChild :: BranchAndBound g
     ( Int
     , Node
     , Bool
-    , Closure (BBNode a b s)
-    , Closure (BAndBFunctions g a b s)
-    , Closure (ToCFns a b s))
+    , Closure (BBNode g)
+    , Closure g
+    , Closure (ToCFns (PartialSolution g) (Bound g) (Candidates g)))          -- ^ Explicit toClosure instances
     -> Thunk (Par (Closure ()))
 branchAndBoundChild (spawnDepth, parent, pl, n, fs', toC) =
   Thunk $ do
@@ -74,13 +74,13 @@ branchAndBoundChild (spawnDepth, parent, pl, n, fs', toC) =
       GT -> branchAndBoundExpand pl spawnDepth parent n fs' toC >> return toClosureUnit
       _  -> return toClosureUnit
 
-branchAndBoundExpand ::
+branchAndBoundExpand :: BranchAndBound g
        Bool
     -> Int
     -> Node
-    -> Closure (BBNode a b s)
-    -> Closure (BAndBFunctions g a b s)
-    -> Closure (ToCFns a b s)
+    -> Closure (BBNode g)
+    -> Closure g
+    -> Closure (ToCFns (PartialSolution g) (Bound g) (Candidates g))
     -> Par ()
 branchAndBoundExpand pl depth parent n fs toC
   | depth == 0 = let fsl  = unClosure fs

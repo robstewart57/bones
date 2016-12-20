@@ -15,7 +15,7 @@ module Bones.Skeletons.BranchAndBound.HdpH.Common
   , notifyParentOfNewBound
 
   -- Static Decl
-  , declareStatic
+  -- , declareStatic
 )
 
 where
@@ -35,9 +35,8 @@ import Bones.Skeletons.BranchAndBound.HdpH.GlobalRegistry
 -- | Ensure the initial solution is set on the master node. This is important
 -- for ensuring there is a value to get (even if it is empty) at the end of the
 -- run.
-initSolutionOnMaster :: BBNode a b s
-                     -> Closure (ToCFns a b s) -- ^ Explicit toClosure instances
-                     -> Par () -- ^ Side-effect only
+initSolutionOnMaster ::
+  BBNode g -> Closure (ToCFns (PartialSolution g) b s) -> Par ()
 initSolutionOnMaster n toC =
   let toCsol = toCa (unClosure toC)
       solC   = toCsol $ solution n
@@ -47,31 +46,32 @@ initSolutionOnMaster n toC =
   in io $ addToRegistry solutionKey (solC, bnd)
 
 -- | Update local bounds
-updateLocalBound ::  b
+updateLocalBound :: BranchAndBound g
+                  => Bound g
                   -- ^ New best solution
-                  -> BAndBFunctions g a b s
-                  -- ^ Functions (to access the strengthen function)
                   -> Par ()
                   -- ^ Side-effect only function
-updateLocalBound bnd fs = do
+updateLocalBound bnd = do
   -- Don't like having to create these "fake nodes", can strength just be b -> b -> Bool?
   -- Or does it need the solution?
   let n = (undefined, bnd, undefined)
   ref <- io $ getRefFromRegistry boundKey
   io $ atomicModifyIORef' ref $ \b ->
-    if compareB fs (bound n) b == GT then (bnd, ()) else (b, ())
+    if compareB {- fs -} (bound n) b == GT then (bnd, ()) else (b, ())
 
-updateLocalBoundT :: ((Closure b), Closure (BAndBFunctions g a b s))
-                   -> Thunk (Par ())
-updateLocalBoundT (bndC, fns) = Thunk $ updateLocalBound (unClosure bndC) (unClosure fns)
+updateLocalBoundT :: BranchAndBound g
+                  => ((Closure (Bound g)), Closure g)
+                  -> Thunk (Par ())
+updateLocalBoundT (bndC, fns) = Thunk $ updateLocalBound (unClosure bndC)
 
 -- | Push new bounds to the master node. Also sends the new solution to avoid
 --   additional messages.
-notifyParentOfNewBound :: Node
+notifyParentOfNewBound :: BranchAndBound g
+                       => Node
                        -- ^ Master node
-                       -> (Closure a, Closure b)
+                       -> (Closure (PartialSolution g), Closure (Bound g))
                        -- ^ New updated solution
-                       -> Closure (BAndBFunctions g a b s)
+                       -> Closure g
                        -- ^ Strengthen Function
                        -> Par ()
                        -- ^ Side-effect only function
@@ -83,15 +83,16 @@ notifyParentOfNewBound parent best fs = do
 
 -- | Update the global solution with the new solution. If this succeeds then
 --   tell all other nodes to update their local information.
-updateParentBoundT :: ((Closure a, Closure b), Closure (BAndBFunctions g a b s))
-                     -- ^ (Node, Functions)
-                     -> Thunk (Par (Closure ()))
-                     -- ^ Side-effect only function
+updateParentBoundT :: BranchAndBound g
+                   => ((Closure (PartialSolution g), Closure (Bound g)), Closure g)
+                   -- ^ (Node, Functions)
+                   -> Thunk (Par (Closure ()))
+                   -- ^ Side-effect only function
 updateParentBoundT ((s, bnd), fns) = Thunk $ do
   let n = (unClosure s, unClosure bnd, undefined)
   ref     <- io $ getRefFromRegistry solutionKey
   updated <- io $ atomicModifyIORef' ref $ \prev@(_, b) ->
-                if compareB (unClosure fns) (bound n) b == GT
+                if compareB {- (unClosure fns) -} (bound n) b == GT
                     then ((s, unClosure bnd), True)
                     else (prev              , False)
 
@@ -101,27 +102,27 @@ updateParentBoundT ((s, bnd), fns) = Thunk $ do
 
   return toClosureUnit
 
-expandSequential ::
-       Bool
+expandSequential :: BranchAndBound g
+    => Bool
        -- ^ PruneLevel Optimisation Enabled?
     -> Node
        -- ^ Master node (for transferring new bounds)
-    -> BBNode a b s
+    -> BBNode g
        -- ^ Root node for this (sub-tree) search
-    -> g
+    -> Space g
        -- ^ Global search space
-    -> Closure (BAndBFunctions g a b s)
+    -> Closure g
        -- ^ Closured function variants
-    -> BAndBFunctions g a b s
+    -> g
        -- ^ Pre-unclosured local function variants
-    -> ToCFns a b s
+    -> ToCFns (PartialSolution g) (Bound g) s
        -- ^ Explicit toClosure instances
     -> Par ()
        -- ^ Side-effect only function
 -- Be careful of n aliasing
 expandSequential pl parent n' space fs fsl toC = expand n'
     where
-      expand n = orderedGenerator fsl space n >>= go
+      expand n = orderedGenerator {- fsl -} space n >>= go
 
       go [] = return ()
 
@@ -132,13 +133,13 @@ expandSequential pl parent n' space fs fsl toC = expand n'
         -- if it's not needed)
         node@(sol, bndl, _) <- n
 
-        lbnd <- pruningHeuristic fsl space node
-        case compareB fsl lbnd gbnd of
+        lbnd <- pruningHeuristic {- fsl -} space node
+        case compareB {- fsl -} lbnd gbnd of
           GT -> do
-            when (compareB fsl (bound node) gbnd == GT) $ do
+            when (compareB {- fsl -} (bound node) gbnd == GT) $ do
                 let cSol = toCa toC sol
                     cBnd = toCb toC bndl
-                updateLocalBound bndl (unClosure fs)
+                updateLocalBound bndl {- (unClosure fs) -}
                 notifyParentOfNewBound parent (cSol, cBnd) fs
 
             expand node >> go ns
@@ -146,9 +147,9 @@ expandSequential pl parent n' space fs fsl toC = expand n'
 
 
 $(return []) -- TH Workaround
-declareStatic :: StaticDecl
-declareStatic = mconcat
-  [
-    declare $(static 'updateParentBoundT)
-  , declare $(static 'updateLocalBoundT)
-  ]
+-- declareStatic :: StaticDecl
+-- declareStatic = mconcat
+--   [
+--     declare $(static 'updateParentBoundT)
+--   , declare $(static 'updateLocalBoundT)
+--   ]
